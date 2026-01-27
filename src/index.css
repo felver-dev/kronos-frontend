@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Valeurs par défaut pour la couleur principale (bleu #2C6BB3) */
+:root {
+  /* format "R G B" pour fonctionner avec Tailwind (rgb(var(--primary) / <alpha-value>)) */
+  --primary-soft: 147 180 220;   /* ~ primary-300 (variante claire) */
+  --primary: 44 107 179;         /* primary-500 (couleur principale #2C6BB3) */
+  --primary-strong: 28 68 114;   /* primary-700 (variante sombre) */
+}
+
+@layer base {
+  body {
+    @apply bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-colors duration-200;
+  }
+  
+  .btn-primary {
+    @apply bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800;
+  }
+  
+  .btn-secondary {
+    @apply bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 active:bg-gray-400 dark:active:bg-gray-500;
+  }
+  
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700 active:bg-red-800;
+  }
+  
+  .input {
+    @apply w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100;
+  }
+  
+  .card {
+    @apply bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6;
+  }
+  
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(15px, -30px);
+  }
+  50% {
+    transform: translate(-20px, -15px);
+  }
+  75% {
+    transform: translate(10px, -25px);
+  }
+}
+
+@keyframes floatSlow {
+  0%, 100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-12px, -20px);
+  }
+}
+
+@keyframes floatFast {
+  0%, 100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(20px, -35px);
+  }
+  50% {
+    transform: translate(-25px, -20px);
+  }
+  75% {
+    transform: translate(15px, -30px);
+  }
+}
+
+.animate-float {
+  animation: float 8s ease-in-out infinite !important;
+}
+
+.animate-float-slow {
+  animation: floatSlow 12s ease-in-out infinite !important;
+}
+
+.animate-float-fast {
+  animation: floatFast 6s ease-in-out infinite !important;
+}
