@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { userService, UserDTO } from '../../services/userService'
 import { departmentService, DepartmentDTO } from '../../services/departmentService'
 import { ticketService, TicketDTO } from '../../services/ticketService'
+import { reportsService, WorkloadByAgentDTO } from '../../services/reportsService'
 import Modal from '../../components/Modal'
 import Pagination from '../../components/Pagination'
 
@@ -38,6 +39,9 @@ const Timesheet = () => {
   const [users, setUsers] = useState<UserDTO[]>([])
   const [departments, setDepartments] = useState<DepartmentDTO[]>([])
   const [tickets, setTickets] = useState<TicketDTO[]>([])
+  /** Données « Performance par technicien » depuis l’API (même source que Mon tableau de bord) */
+  const [workloadByAgent, setWorkloadByAgent] = useState<WorkloadByAgentDTO[] | null>(null)
+  const [loadingWorkloadByAgent, setLoadingWorkloadByAgent] = useState(false)
   const [pendingValidations, setPendingValidations] = useState({
     entries: 0,
     daily: 0,
@@ -112,6 +116,9 @@ const Timesheet = () => {
   const [editingTicketId, setEditingTicketId] = useState<number | null>(null)
   const [estimatedTimeValue, setEstimatedTimeValue] = useState<string>('')
 
+  // Département de l'utilisateur connecté (pour conditions « Soumettre en validation »)
+  const [userDepartment, setUserDepartment] = useState<DepartmentDTO | null>(null)
+
   // Charger les données
   // Définir l'onglet actif par défaut selon les permissions
   useEffect(() => {
@@ -133,6 +140,31 @@ const Timesheet = () => {
     loadData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPeriod, activeTab, selectedDailyDate, selectedWeeklyWeek])
+
+  // Charger le département de l'utilisateur (conditions soumission pour validation)
+  const loadUserDepartment = async () => {
+    if (!user?.department_id) {
+      setUserDepartment(null)
+      return
+    }
+    try {
+      const dept = await departmentService.getById(user.department_id)
+      setUserDepartment(dept)
+    } catch (err) {
+      console.error('Erreur lors du chargement du département:', err)
+      setUserDepartment(null)
+    }
+  }
+  useEffect(() => {
+    if (user?.department_id) {
+      loadUserDepartment()
+    } else {
+      setUserDepartment(null)
+    }
+  }, [user?.id, user?.department_id])
+
+  // Conditions pour activer « Soumettre en validation » : département IT + filiale fournisseur de logiciels
+  const canSubmitForValidation = Boolean(userDepartment?.is_it_department && userDepartment?.filiale?.is_software_provider)
 
   const loadData = async () => {
     setLoading(true)
@@ -348,8 +380,8 @@ const Timesheet = () => {
         }
       }
 
-      // Charger les tickets pour les filtres, la création d'entrées et les déclarations
-      if (activeTab === 'entries' || activeTab === 'budget' || activeTab === 'daily' || activeTab === 'weekly') {
+      // Charger les tickets pour les filtres, la création d'entrées, les déclarations et la section Performance par technicien (Vue d'ensemble)
+      if (activeTab === 'overview' || activeTab === 'entries' || activeTab === 'budget' || activeTab === 'daily' || activeTab === 'weekly') {
         try {
           if (isEmployeeView) {
             // Pour les employés, charger seulement leurs tickets
@@ -357,7 +389,7 @@ const Timesheet = () => {
             const ticketsArray = Array.isArray(ticketsResponse.tickets) ? ticketsResponse.tickets : []
             setTickets(ticketsArray)
           } else {
-            // Pour les managers, charger tous les tickets
+            // Pour les managers, charger tous les tickets (scope selon permissions)
             const ticketsResponse = await ticketService.getAll(1, 1000)
             const ticketsArray = Array.isArray(ticketsResponse.tickets) ? ticketsResponse.tickets : []
             setTickets(ticketsArray)
@@ -366,6 +398,23 @@ const Timesheet = () => {
           console.error('Erreur lors du chargement des tickets:', error)
           setTickets([])
         }
+      }
+
+      // Performance par technicien : même source que « Mon tableau de bord » (API) pour des données cohérentes
+      if (activeTab === 'overview' && !isEmployeeView) {
+        setLoadingWorkloadByAgent(true)
+        const scope: 'department' | 'filiale' | 'global' = hasPermission?.('reports.view_team')
+          ? 'department'
+          : hasPermission?.('reports.view_filiale')
+            ? 'filiale'
+            : 'global'
+        reportsService
+          .getWorkloadByAgent('month', scope)
+          .then((data) => setWorkloadByAgent(Array.isArray(data) ? data : []))
+          .catch(() => setWorkloadByAgent(null))
+          .finally(() => setLoadingWorkloadByAgent(false))
+      } else {
+        setWorkloadByAgent(null)
       }
       
       // Charger les déclarations personnelles pour les employés
@@ -713,6 +762,7 @@ const Timesheet = () => {
   const validationRate = safeTimeEntries.length > 0 ? (validatedCount / safeTimeEntries.length) * 100 : 0
 
   // Préparer les données pour les graphiques (à améliorer avec de vraies données)
+  // Période pour la section « Performance par technicien » : si aucune date custom, utiliser le mois en cours par défaut pour afficher des données
   const isInSelectedPeriod = (dateStr?: string) => {
     if (!dateStr) return false
     const date = new Date(dateStr)
@@ -747,56 +797,110 @@ const Timesheet = () => {
     return date >= startDate && date <= endDate
   }
 
-  const performanceData = safeUsers.map(user => {
-    const userEntries = safeTimeEntries.filter(e => e.user_id === user.id && isInSelectedPeriod(e.date))
-    const totalTime = userEntries.reduce((sum, e) => sum + e.time_spent, 0)
-    const avgTime = userEntries.length > 0 ? totalTime / userEntries.length : 0
-
-    const assignedTickets = tickets.filter(t => t.assigned_to?.id === user.id && isInSelectedPeriod(t.created_at))
-    const processedTickets = assignedTickets.filter(t => t.status === 'cloture')
-    const unprocessedTickets = assignedTickets.filter(t => t.status !== 'cloture')
-
-    const budgetTrackedTickets = processedTickets.filter(
-      t => (t.estimated_time ?? 0) > 0 && typeof t.actual_time === 'number'
-    )
-    const budgetCompliantTickets = budgetTrackedTickets.filter(
-      t => (t.actual_time ?? 0) <= (t.estimated_time ?? 0)
-    )
-
-    const efficiency = assignedTickets.length > 0
-      ? Math.round((processedTickets.length / assignedTickets.length) * 100)
-      : 0
-    const budgetCompliance = processedTickets.length > 0 && budgetTrackedTickets.length > 0
-      ? Math.round((budgetCompliantTickets.length / budgetTrackedTickets.length) * 100)
-      : 0
-
-    return {
-      name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username,
-      ticketsProcessed: processedTickets.length,
-      ticketsAssigned: assignedTickets.length,
-      ticketsUnprocessed: unprocessedTickets.length,
-      efficiency,
-      avgTime,
-      budgetCompliance,
-      budgetTrackedCount: budgetTrackedTickets.length,
+  // Pour « Performance par technicien » : période = dates custom OU par défaut mois en cours (évite tout à 0 quand aucune période n'est choisie)
+  const isInPerformancePeriod = (dateStr?: string) => {
+    if (!dateStr) return false
+    const date = new Date(dateStr)
+    const today = new Date()
+    let startDate: Date
+    let endDate: Date
+    if (performanceAppliedStart || performanceAppliedEnd) {
+      const appliedStart = performanceAppliedStart || performanceAppliedEnd
+      const appliedEnd = performanceAppliedEnd || performanceAppliedStart
+      startDate = appliedStart ? new Date(appliedStart) : new Date(0)
+      startDate.setHours(0, 0, 0, 0)
+      endDate = appliedEnd ? new Date(appliedEnd) : new Date(today)
+      endDate.setHours(23, 59, 59, 999)
+    } else {
+      // Défaut : mois en cours pour que les chiffres s'affichent
+      startDate = new Date(today.getFullYear(), today.getMonth(), 1)
+      startDate.setHours(0, 0, 0, 0)
+      endDate = new Date(today)
+      endDate.setHours(23, 59, 59, 999)
     }
-  })
+    return date >= startDate && date <= endDate
+  }
+
+  // Une seule source de vérité : API getWorkloadByAgent (aligné avec « Mon tableau de bord »). Sinon fallback sur calcul local.
+  const performanceData =
+    workloadByAgent !== null
+      ? workloadByAgent.map((row) => {
+          const name =
+            row.user?.first_name || row.user?.last_name
+              ? [row.user.first_name, row.user.last_name].filter(Boolean).join(' ')
+              : row.user?.username ?? `#${row.user_id}`
+          return {
+            name,
+            user_id: row.user_id,
+            ticketsProcessed: row.resolved_count,
+            ticketsAssigned: row.ticket_count,
+            ticketsUnprocessed: row.open_count + row.in_progress_count + row.pending_count,
+            efficiency: Math.round(row.efficiency ?? 0),
+            avgTime: row.average_time ?? 0,
+            budgetCompliance: 0,
+            budgetTrackedCount: 0,
+          }
+        })
+      : safeUsers.map((user) => {
+          const userEntries = safeTimeEntries.filter((e) => e.user_id === user.id && isInPerformancePeriod(e.date))
+          const totalTime = userEntries.reduce((sum, e) => sum + e.time_spent, 0)
+          const avgTime = userEntries.length > 0 ? totalTime / userEntries.length : 0
+          const userIdNum = typeof user.id === 'string' ? Number(user.id) : user.id
+          const assignedTickets = tickets.filter((t) => {
+            const assignedId =
+              t.assigned_to?.id != null
+                ? typeof t.assigned_to.id === 'string'
+                  ? Number(t.assigned_to.id)
+                  : t.assigned_to.id
+                : null
+            return assignedId === userIdNum && isInPerformancePeriod(t.created_at)
+          })
+          const isProcessed = (t: TicketDTO) => t.status === 'cloture' || t.status === 'resolu'
+          const processedTickets = assignedTickets.filter(isProcessed)
+          const budgetTrackedTickets = processedTickets.filter((t) => (t.estimated_time ?? 0) > 0)
+          const budgetCompliantTickets = budgetTrackedTickets.filter(
+            (t) => (t.actual_time ?? 0) <= (t.estimated_time ?? 0)
+          )
+          const efficiency =
+            assignedTickets.length > 0
+              ? Math.round((processedTickets.length / assignedTickets.length) * 100)
+              : 0
+          const budgetCompliance =
+            processedTickets.length > 0 && budgetTrackedTickets.length > 0
+              ? Math.round((budgetCompliantTickets.length / budgetTrackedTickets.length) * 100)
+              : 0
+          return {
+            name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username,
+            user_id: userIdNum,
+            ticketsProcessed: processedTickets.length,
+            ticketsAssigned: assignedTickets.length,
+            ticketsUnprocessed: assignedTickets.filter((t) => !isProcessed(t)).length,
+            efficiency,
+            avgTime,
+            budgetCompliance,
+            budgetTrackedCount: budgetTrackedTickets.length,
+          }
+        })
 
   const performanceDepartments = departments
     .filter(dept => dept.is_active)
     .map(dept => dept.name)
     .sort((a, b) => a.localeCompare(b, 'fr'))
 
-  const filteredPerformanceData = performanceData.filter(perf => {
+  const filteredPerformanceData = performanceData.filter((perf) => {
+    const searchTrim = performanceSearch.trim()
     const matchesSearch =
-      performanceAppliedSearch.trim() === '' ||
-      perf.name.toLowerCase().includes(performanceAppliedSearch.trim().toLowerCase())
+      searchTrim === '' ||
+      perf.name.toLowerCase().includes(searchTrim.toLowerCase())
+    const deptSelected = (performanceDepartment || '').trim()
     const matchesDepartment =
-      performanceAppliedDepartment === '' ||
-      safeUsers.find(u => {
-        const name = `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username
-        return name === perf.name && u.department?.name === performanceAppliedDepartment
-      })
+      deptSelected === '' ||
+      ('user_id' in perf && perf.user_id != null
+        ? safeUsers.find((u) => Number(u.id) === perf.user_id)?.department?.name === deptSelected
+        : !!safeUsers.find((u) => {
+            const name = `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username
+            return name === perf.name && u.department?.name === deptSelected
+          }))
     return matchesSearch && matchesDepartment
   })
 
@@ -1118,7 +1222,6 @@ const Timesheet = () => {
                         setPerformancePage(1)
                       }}
                       className="btn btn-primary whitespace-nowrap"
-                      disabled={!performanceStartDate && !performanceEndDate}
                     >
                       Valider
                     </button>
@@ -1126,6 +1229,13 @@ const Timesheet = () => {
                 </div>
               </div>
             </div>
+            {loadingWorkloadByAgent ? (
+              <div className="flex items-center justify-center py-12 text-gray-500 dark:text-gray-400">
+                <Loader2 className="w-8 h-8 animate-spin mr-2" />
+                Chargement des performances…
+              </div>
+            ) : (
+            <>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-800">
@@ -1208,6 +1318,8 @@ const Timesheet = () => {
               onPageChange={setPerformancePage}
               onItemsPerPageChange={setPerformancePerPage}
             />
+            </>
+            )}
           </div>
             </>
           )}
@@ -1452,17 +1564,13 @@ const Timesheet = () => {
                             {!entry.validated && hasPermission?.('timesheet.validate') && (
                               <>
                                 <button
-                                  onClick={async () => {
-                                    try {
-                                      await timesheetService.validateTimeEntry(entry.id, true)
-                                      toast.success('Entrée de temps validée')
-                                      await loadData()
-                                    } catch (error: any) {
-                                      toast.error('Erreur lors de la validation')
-                                    }
+                                  onClick={() => {
+                                    if (!canSubmitForValidation) return
+                                    toast.info('Soumis pour validation. La validation est effectuée par le demandeur du ticket depuis la fiche ticket.')
                                   }}
-                                  className="text-green-600 dark:text-green-400 hover:text-green-900 dark:hover:text-green-300"
-                                  title="Valider"
+                                  disabled={!canSubmitForValidation}
+                                  title={canSubmitForValidation ? 'Soumettre en validation (la validation est effectuée par le demandeur du ticket)' : 'Réservé au département IT de la filiale fournisseur de logiciels'}
+                                  className={canSubmitForValidation ? 'text-green-600 dark:text-green-400 hover:text-green-900 dark:hover:text-green-300' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed opacity-50'}
                                 >
                                   <CheckCircle className="w-5 h-5" />
                                 </button>
@@ -1850,7 +1958,7 @@ const Timesheet = () => {
                   )}
 
                   {!currentWeeklyDeclaration.validated && (
-                    <button 
+                    <button
                       onClick={async () => {
                         try {
                           await timesheetService.validateWeeklyDeclaration(selectedWeeklyWeek)
@@ -1860,10 +1968,12 @@ const Timesheet = () => {
                           toast.error(error?.message || 'Erreur lors de la soumission')
                         }
                       }}
-                      className="w-full btn btn-primary flex items-center justify-center"
+                      disabled={!canSubmitForValidation}
+                      title={canSubmitForValidation ? 'Soumettre la déclaration pour validation' : 'Réservé aux membres du département IT de la filiale fournisseur de logiciels'}
+                      className={`w-full btn flex items-center justify-center ${canSubmitForValidation ? 'btn-primary' : 'btn-secondary opacity-50 cursor-not-allowed'}`}
                     >
                       <CheckCircle className="w-5 h-5 mr-2" />
-                      Soumettre pour validation
+                      Soumettre en validation
                     </button>
                   )}
                 </div>
@@ -2525,20 +2635,16 @@ const Timesheet = () => {
                     </div>
                     <div className="flex items-center space-x-3">
                       <button
-                        onClick={async () => {
-                          try {
-                            await timesheetService.validateTimeEntry(entry.id, true)
-                            toast.success('Entrée de temps validée')
-                            await loadData()
-                          } catch (error) {
-                            toast.error('Erreur lors de la validation')
-                          }
+                        onClick={() => {
+                          if (!canSubmitForValidation || entry.validated_by) return
+                          toast.info('Soumis pour validation. La validation est effectuée par le demandeur du ticket depuis la fiche ticket.')
                         }}
-                        className="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                        disabled={!!entry.validated_by}
+                        disabled={!!entry.validated_by || !canSubmitForValidation}
+                        title={canSubmitForValidation ? 'Soumettre en validation (la validation est effectuée par le demandeur du ticket)' : 'Réservé au département IT de la filiale fournisseur de logiciels'}
+                        className={`inline-flex items-center px-4 py-2 font-medium rounded-lg shadow-sm hover:shadow-md transition-all duration-200 ${canSubmitForValidation && !entry.validated_by ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed opacity-60'}`}
                       >
                         <CheckCircle className="w-4 h-4 mr-2" />
-                        Valider
+                        Soumettre en validation
                       </button>
                       <button
                         onClick={async () => {

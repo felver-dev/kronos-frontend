@@ -317,11 +317,11 @@ const Assets = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Actifs IT</h1>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 sm:text-3xl">Actifs IT</h1>
           <div className="flex items-center gap-2 mt-1">
-            <p className="text-gray-600 dark:text-gray-400">Gérez tous les actifs informatiques</p>
+            <p className="text-gray-600 dark:text-gray-400 text-sm sm:text-base">Gérez tous les actifs informatiques</p>
             <button
               onClick={() => setIsInfoModalOpen(!isInfoModalOpen)}
               className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors flex items-center justify-center flex-shrink-0"
@@ -333,10 +333,10 @@ const Assets = () => {
         </div>
         <button
           onClick={() => setIsModalOpen(true)}
-          className="btn btn-primary flex items-center flex-shrink-0"
+          className="inline-flex items-center justify-center w-full sm:w-auto flex-shrink-0 px-3 py-2 sm:px-4 sm:py-2 text-sm sm:text-base font-medium rounded-lg bg-primary-600 hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 text-white shadow-sm transition-colors"
         >
-          <Plus className="w-5 h-5 mr-2" />
-          Nouvel actif
+          <Plus className="w-5 h-5 mr-2 flex-shrink-0" />
+          <span className="truncate">Nouvel actif</span>
         </button>
       </div>
 
@@ -367,75 +367,29 @@ const Assets = () => {
         </div>
       )}
 
-      {/* Statistiques rapides */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="card">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Total actifs</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{inventory?.total || 0}</p>
-            </div>
-            <HardDrive className="w-8 h-8 text-primary-600 dark:text-primary-400" />
-          </div>
-        </div>
-        <div className="card">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">En utilisation</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{inventory?.by_status?.in_use || 0}</p>
-            </div>
-            <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
-              <Laptop className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-            </div>
-          </div>
-        </div>
-        <div className="card">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">En maintenance</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{inventory?.by_status?.maintenance || 0}</p>
-            </div>
-            <div className="w-8 h-8 bg-orange-100 dark:bg-orange-900/30 rounded-lg flex items-center justify-center">
-              <HardDrive className="w-5 h-5 text-orange-600 dark:text-orange-400" />
-            </div>
-          </div>
-        </div>
-        <div className="card">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Hors service</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{inventory?.by_status?.retired || 0}</p>
-            </div>
-            <div className="w-8 h-8 bg-red-100 dark:bg-red-900/30 rounded-lg flex items-center justify-center">
-              <HardDrive className="w-5 h-5 text-red-600 dark:text-red-400" />
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Filtres et recherche */}
       <div className="card">
-        <div className="flex flex-col sm:flex-row gap-3 items-end">
+        <div className="flex flex-col gap-4 sm:grid sm:grid-cols-2 lg:flex lg:flex-row lg:flex-wrap lg:items-end">
           {/* Recherche */}
-          <div className="flex-1 w-full sm:w-auto">
+          <div className="relative sm:col-span-2 lg:col-span-none lg:flex-1 lg:min-w-[180px]">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
               <input
                 type="text"
                 placeholder="Rechercher un actif..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="input pl-10 w-full"
+                className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 text-sm sm:text-base"
               />
             </div>
           </div>
 
-          {/* Filtres */}
-          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          {/* Catégorie */}
+          <div className="relative">
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent sm:w-48"
+              className="block w-full min-w-0 lg:w-48 xl:w-56 px-3 py-2.5 pr-10 sm:px-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent cursor-pointer text-sm sm:text-base appearance-none"
             >
               <option value="all">Toutes les catégories</option>
               {categories.map((category) => (
@@ -444,11 +398,19 @@ const Assets = () => {
                 </option>
               ))}
             </select>
+            <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+              <svg className="h-5 w-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
+          </div>
 
+          {/* Statut */}
+          <div className="relative">
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent sm:w-48"
+              className="block w-full min-w-0 lg:w-48 xl:w-56 px-3 py-2.5 pr-10 sm:px-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent cursor-pointer text-sm sm:text-base appearance-none"
             >
               <option value="all">Tous les statuts</option>
               <option value="available">Disponible</option>
@@ -456,36 +418,57 @@ const Assets = () => {
               <option value="maintenance">En maintenance</option>
               <option value="retired">Hors service</option>
             </select>
-
-            <div className="flex gap-2">
-              <input
-                type="date"
-                value={dateFilterFrom}
-                onChange={(e) => setDateFilterFrom(e.target.value)}
-                placeholder="Date d'achat (début)"
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent sm:w-40"
-              />
-              <input
-                type="date"
-                value={dateFilterTo}
-                onChange={(e) => setDateFilterTo(e.target.value)}
-                placeholder="Date d'achat (fin)"
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent sm:w-40"
-              />
-              {(dateFilterFrom || dateFilterTo) && (
-                <button
-                  onClick={() => {
-                    setDateFilterFrom('')
-                    setDateFilterTo('')
-                  }}
-                  className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
-                  title="Réinitialiser les dates"
-                >
-                  ✕
-                </button>
-              )}
+            <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+              <svg className="h-5 w-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
             </div>
           </div>
+
+          {/* Dates d'achat */}
+          <div className="flex flex-col sm:flex-row gap-2 sm:col-span-2 lg:col-span-none">
+            <input
+              type="date"
+              value={dateFilterFrom}
+              onChange={(e) => setDateFilterFrom(e.target.value)}
+              placeholder="Date d'achat (début)"
+              className="block w-full min-w-0 sm:w-40 px-3 py-2.5 sm:px-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent text-sm sm:text-base"
+            />
+            <input
+              type="date"
+              value={dateFilterTo}
+              onChange={(e) => setDateFilterTo(e.target.value)}
+              placeholder="Date d'achat (fin)"
+              className="block w-full min-w-0 sm:w-40 px-3 py-2.5 sm:px-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent text-sm sm:text-base"
+            />
+            {(dateFilterFrom || dateFilterTo) && (
+              <button
+                onClick={() => {
+                  setDateFilterFrom('')
+                  setDateFilterTo('')
+                }}
+                className="px-3 py-2.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors flex-shrink-0"
+                title="Réinitialiser les dates"
+              >
+                ✕ Dates
+              </button>
+            )}
+          </div>
+
+          {/* Bouton Réinitialiser */}
+          <button
+            type="button"
+            onClick={() => {
+              setSearchTerm('')
+              setCategoryFilter('all')
+              setStatusFilter('all')
+              setDateFilterFrom('')
+              setDateFilterTo('')
+            }}
+            className="inline-flex items-center justify-center w-full sm:w-auto flex-shrink-0 px-3 py-2.5 sm:px-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 transition-colors text-sm sm:text-base"
+          >
+            Réinitialiser
+          </button>
         </div>
       </div>
 

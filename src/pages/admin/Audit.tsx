@@ -138,11 +138,9 @@ const Audit = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Logs d'audit</h1>
-          <p className="text-gray-600 dark:text-gray-300 mt-1">Traçabilité complète de toutes les actions</p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 sm:text-3xl">Logs d'audit</h1>
+        <p className="text-gray-600 dark:text-gray-300 mt-1 text-sm sm:text-base">Traçabilité complète de toutes les actions</p>
       </div>
 
       {/* Statistiques */}
@@ -199,9 +197,9 @@ const Audit = () => {
 
       {/* Filtres et recherche */}
       <div className="card bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm">
-        <div className="flex flex-col lg:flex-row gap-4">
+        <div className="flex flex-col gap-4 sm:grid sm:grid-cols-2 lg:flex lg:flex-row lg:flex-wrap lg:items-end">
           {/* Champ de recherche */}
-          <div className="flex-1 relative">
+          <div className="relative sm:col-span-2 lg:flex-1 lg:min-w-[180px]">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <Search className="h-5 w-5 text-gray-400 dark:text-gray-500" />
             </div>
@@ -222,7 +220,7 @@ const Audit = () => {
                 setFilterAction(e.target.value)
                 setCurrentPage(1)
               }}
-              className="appearance-none block w-full lg:w-56 px-4 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent transition-all duration-200 cursor-pointer"
+              className="appearance-none block w-full min-w-0 lg:w-48 xl:w-56 px-3 py-2.5 pr-10 sm:px-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent transition-all duration-200 cursor-pointer text-sm sm:text-base"
             >
               <option value="all" className="bg-white dark:bg-gray-700">Toutes les actions</option>
               <option value="create" className="bg-white dark:bg-gray-700">Création</option>
@@ -246,7 +244,7 @@ const Audit = () => {
                 setFilterEntity(e.target.value)
                 setCurrentPage(1)
               }}
-              className="appearance-none block w-full lg:w-56 px-4 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent transition-all duration-200 cursor-pointer"
+              className="appearance-none block w-full min-w-0 lg:w-48 xl:w-56 px-3 py-2.5 pr-10 sm:px-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent transition-all duration-200 cursor-pointer text-sm sm:text-base"
             >
               <option value="all" className="bg-white dark:bg-gray-700">Toutes les entités</option>
               <option value="ticket" className="bg-white dark:bg-gray-700">Tickets</option>
@@ -269,7 +267,7 @@ const Audit = () => {
                 setFilterUser(e.target.value)
                 setCurrentPage(1)
               }}
-              className="appearance-none block w-full lg:w-56 px-4 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent transition-all duration-200 cursor-pointer"
+              className="appearance-none block w-full min-w-0 lg:w-48 xl:w-56 px-3 py-2.5 pr-10 sm:px-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent transition-all duration-200 cursor-pointer text-sm sm:text-base"
             >
               <option value="all" className="bg-white dark:bg-gray-700">Tous les utilisateurs</option>
               {users.map((user) => (
@@ -287,7 +285,7 @@ const Audit = () => {
             </div>
           </div>
           
-          {/* Bouton Plus de filtres */}
+          {/* Bouton Réinitialiser */}
           <button
             onClick={() => {
               setSearchTerm('')
@@ -296,10 +294,10 @@ const Audit = () => {
               setFilterUser('all')
               setCurrentPage(1)
             }}
-            className="inline-flex items-center justify-center px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:ring-offset-2 dark:focus:ring-offset-gray-800 transition-all duration-200 shadow-sm hover:shadow"
+            className="inline-flex items-center justify-center w-full sm:w-auto flex-shrink-0 px-3 py-2.5 sm:px-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:ring-offset-2 dark:focus:ring-offset-gray-800 transition-all duration-200 shadow-sm hover:shadow text-sm sm:text-base"
           >
-            <Filter className="w-5 h-5 mr-2" />
-            Réinitialiser
+            <Filter className="w-5 h-5 mr-2 flex-shrink-0" />
+            <span>Réinitialiser</span>
           </button>
         </div>
       </div>

@@ -16,17 +16,22 @@ import {
   RefreshCw,
   Camera,
   Trash2,
+  Palette,
+  AlertCircle,
 } from 'lucide-react'
 import { API_BASE_URL } from '../config/api'
 import { userService, UserDTO } from '../services/userService'
 import { ticketService } from '../services/ticketService'
+import { departmentService, DepartmentDTO } from '../services/departmentService'
 import { useAuth } from '../contexts/AuthContext'
 import { useToastContext } from '../contexts/ToastContext'
+import { useTheme } from '../contexts/ThemeContext'
 import Modal from '../components/Modal'
 
 const Profile = () => {
   const toast = useToastContext()
   const { user: authUser, refreshUser } = useAuth()
+  const { primaryColor, setPrimaryColor } = useTheme()
   const [profileUser, setProfileUser] = useState<UserDTO | null>(null)
   const [recentAchievements, setRecentAchievements] = useState<
     Array<{ id: string; title: string; date: string; icon: typeof Award }>
@@ -41,7 +46,10 @@ const Profile = () => {
     last_name: '',
     email: '',
     phone: '',
+    department_id: null as number | null,
   })
+  const [departments, setDepartments] = useState<DepartmentDTO[]>([])
+  const [loadingDepartments, setLoadingDepartments] = useState(false)
   const [passwordForm, setPasswordForm] = useState({
     old_password: '',
     new_password: '',
@@ -208,14 +216,33 @@ const Profile = () => {
     }
   }, [profileUser?.id, profileUser?.avatar])
 
-  const openEditModal = () => {
+  const loadDepartments = async () => {
+    if (!profileUser?.filiale_id) {
+      setDepartments([])
+      return
+    }
+    setLoadingDepartments(true)
+    try {
+      const data = await departmentService.getByFilialeId(profileUser.filiale_id)
+      setDepartments(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('Erreur lors du chargement des départements:', error)
+      setDepartments([])
+    } finally {
+      setLoadingDepartments(false)
+    }
+  }
+
+  const openEditModal = async () => {
     setEditForm({
       first_name: profileUser?.first_name || authUser?.firstName || '',
       last_name: profileUser?.last_name || authUser?.lastName || '',
       email: profileUser?.email || authUser?.email || '',
       phone: profileUser?.phone || '',
+      department_id: profileUser?.department_id || null,
     })
     setIsEditModalOpen(true)
+    await loadDepartments()
   }
 
   const handleEditSave = async () => {
@@ -550,6 +577,71 @@ const Profile = () => {
               </div>
             )}
           </div>
+
+          {/* Section Apparence */}
+          <div className="card">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+              <Palette className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+              Apparence
+            </h3>
+            <div className="space-y-6">
+              <div>
+                <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">
+                  Thème & couleur principale
+                </h4>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Choisissez la couleur principale utilisée pour les boutons, liens et éléments d&apos;accent.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Couleur principale
+                  </label>
+                  <div className="flex items-center space-x-4">
+                    <input
+                      type="color"
+                      value={primaryColor}
+                      onChange={(e) => setPrimaryColor(e.target.value)}
+                      className="h-10 w-16 rounded border border-gray-300 dark:border-gray-600 bg-transparent cursor-pointer"
+                    />
+                    <div className="flex flex-col">
+                      <span className="text-sm text-gray-700 dark:text-gray-200">
+                        Couleur actuelle : <span className="font-mono">{primaryColor}</span>
+                      </span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        La modification est appliquée instantanément sur toute l&apos;application.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-col items-start md:items-end space-y-3">
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    Aperçu des composants avec la couleur choisie :
+                  </span>
+                  <div className="flex flex-wrap gap-3">
+                    <button className="btn btn-primary text-sm">
+                      Bouton principal
+                    </button>
+                    <span className="badge bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
+                      Badge primaire
+                    </span>
+                    <span className="text-sm text-primary-600 dark:text-primary-400">
+                      Lien / texte accentué
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-start space-x-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+                <AlertCircle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 mt-0.5" />
+                <p className="text-xs text-yellow-800 dark:text-yellow-200">
+                  La couleur choisie est enregistrée dans ce navigateur uniquement. Pour l&apos;instant, elle n&apos;est pas synchronisée entre vos appareils.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -609,6 +701,34 @@ const Profile = () => {
               placeholder="+33 6 12 34 56 78"
             />
           </div>
+          {profileUser?.filiale_id && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Département
+              </label>
+              {loadingDepartments ? (
+                <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                  Chargement des départements...
+                </div>
+              ) : (
+                <select
+                  value={editForm.department_id || ''}
+                  onChange={(e) => setEditForm((f) => ({ ...f, department_id: e.target.value ? parseInt(e.target.value) : null }))}
+                  className="input w-full"
+                >
+                  <option value="">Aucun département</option>
+                  {departments.map((dept) => (
+                    <option key={dept.id} value={dept.id}>
+                      {dept.name} {dept.code ? `(${dept.code})` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Sélectionnez un département de votre filiale
+              </p>
+            </div>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <button
               type="button"

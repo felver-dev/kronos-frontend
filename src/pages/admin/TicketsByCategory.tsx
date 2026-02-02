@@ -107,6 +107,7 @@ const TicketsByCategory = () => {
     hasPermission(`${permPrefix}.view_team`) ||
     hasPermission(`${permPrefix}.view_own`) ||
     hasPermission('tickets.view_all') ||
+    hasPermission('tickets.view_filiale') ||
     hasPermission('tickets.view_team') ||
     hasPermission('tickets.view_own') ||
     hasPermission('tickets.create') ||
@@ -565,9 +566,14 @@ const TicketsByCategory = () => {
                         <div className="text-xs text-gray-500 dark:text-gray-400">{ticket.requester_department || ''}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                        {ticket.assigned_to
-                          ? `${ticket.assigned_to.first_name || ''} ${ticket.assigned_to.last_name || ''}`.trim() || ticket.assigned_to.username || ticket.assigned_to.email || '—'
-                          : 'Non assigné'}
+                        {ticket.assigned_to ? (
+                          <>
+                            <div>{`${ticket.assigned_to.first_name || ''} ${ticket.assigned_to.last_name || ''}`.trim() || ticket.assigned_to.username || '—'}</div>
+                            {ticket.assigned_to.email && <div className="text-xs text-gray-500 dark:text-gray-400">{ticket.assigned_to.email}</div>}
+                          </>
+                        ) : (
+                          'Non assigné'
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{formatDate(ticket.created_at)}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">

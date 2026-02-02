@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Clock, User, MessageSquare, Paperclip, Image as ImageIcon, CheckCircle, AlertCircle, Loader2, UserPlus, Trash2, X, BookOpen, Edit, Plus } from 'lucide-react'
-import { ticketService, TicketDTO, TicketCommentDTO, TicketHistoryDTO, TicketAttachmentDTO, CreateTicketCommentRequest, UpdateTicketRequest, ticketSolutionService, TicketSolutionDTO } from '../../services/ticketService'
+import { ArrowLeft, Clock, User, MessageSquare, Paperclip, Image as ImageIcon, CheckCircle, AlertCircle, Loader2, UserPlus, Trash2, X, BookOpen, Edit, Plus, Timer, CheckSquare } from 'lucide-react'
+import { ticketService, TicketDTO, TicketCommentDTO, TicketHistoryDTO, TicketAttachmentDTO, CreateTicketCommentRequest, UpdateTicketCommentRequest, UpdateTicketRequest, ticketSolutionService, TicketSolutionDTO } from '../../services/ticketService'
 import { userService, UserDTO } from '../../services/userService'
 import { departmentService, DepartmentDTO } from '../../services/departmentService'
+import { timesheetService } from '../../services/timesheetService'
 import { knowledgeService, KnowledgeCategoryDTO } from '../../services/knowledgeService'
 import { ticketCategoryService, TicketCategoryDTO } from '../../services/ticketCategoryService'
 import { API_BASE_URL } from '../../config/api'
 import Modal from '../../components/Modal'
 import ConfirmModal from '../../components/ConfirmModal'
+import Pagination from '../../components/Pagination'
+import ImageCarousel from '../../components/ImageCarousel'
 import { useToastContext } from '../../contexts/ToastContext'
 import { useAuth } from '../../contexts/AuthContext'
 import MarkdownEditor from '../../components/MarkdownEditor'
@@ -21,17 +24,25 @@ const TicketDetails = () => {
   const toast = useToastContext()
   const location = useLocation()
   const basePath = location.pathname.startsWith('/employee') ? '/employee' : '/admin'
-  const { hasPermission } = useAuth()
+  const { hasPermission, user: authUser } = useAuth()
   const [ticket, setTicket] = useState<TicketDTO | null>(null)
   const [comments, setComments] = useState<TicketCommentDTO[]>([])
   const [history, setHistory] = useState<TicketHistoryDTO[]>([])
+  const [historyCurrentPage, setHistoryCurrentPage] = useState(1)
+  const [historyItemsPerPage, setHistoryItemsPerPage] = useState(10)
   const [attachments, setAttachments] = useState<TicketAttachmentDTO[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [newComment, setNewComment] = useState('')
   const [isSubmittingComment, setIsSubmittingComment] = useState(false)
   const [isInternalComment, setIsInternalComment] = useState(false)
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null)
+  const [editCommentText, setEditCommentText] = useState('')
+  const [isUpdatingComment, setIsUpdatingComment] = useState(false)
+  const [commentToDelete, setCommentToDelete] = useState<TicketCommentDTO | null>(null)
+  const [isDeletingComment, setIsDeletingComment] = useState(false)
   const [imageUrls, setImageUrls] = useState<Record<number, string>>({})
+  const [failedImageIds, setFailedImageIds] = useState<Set<number>>(new Set())
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false)
   const [users, setUsers] = useState<UserDTO[]>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
@@ -40,15 +51,21 @@ const TicketDetails = () => {
   const [isAssigning, setIsAssigning] = useState(false)
   const [departments, setDepartments] = useState<DepartmentDTO[]>([])
   const [loadingDepartments, setLoadingDepartments] = useState(false)
+  const [userDepartment, setUserDepartment] = useState<DepartmentDTO | null>(null)
   const [editSelectedRequesterId, setEditSelectedRequesterId] = useState<number | ''>('')
   const [editSelectedDepartmentId, setEditSelectedDepartmentId] = useState<number | ''>('')
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isCloseModalOpen, setIsCloseModalOpen] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
+  const [isInvalidating, setIsInvalidating] = useState(false)
+  const [isReopening, setIsReopening] = useState(false)
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false)
   const [isChangingStatus, setIsChangingStatus] = useState(false)
-  const [newStatus, setNewStatus] = useState<'ouvert' | 'en_cours' | 'en_attente' | 'cloture'>('ouvert')
+  const [isSubmittingForValidation, setIsSubmittingForValidation] = useState(false)
+  const [newStatus, setNewStatus] = useState<'ouvert' | 'en_cours' | 'en_attente' | 'resolu' | 'cloture'>('ouvert')
+  const [isValidateModalOpen, setIsValidateModalOpen] = useState(false)
+  const [isValidating, setIsValidating] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
   const [editFormData, setEditFormData] = useState({
@@ -59,10 +76,18 @@ const TicketDetails = () => {
     priority: 'low' as 'low' | 'medium' | 'high' | 'critical',
     requester_name: '',
     requester_department: '',
+    estimated_time_value: '' as number | '',
+    estimated_time_unit: 'hours' as 'minutes' | 'hours' | 'days',
   })
+  const [isEstimateModalOpen, setIsEstimateModalOpen] = useState(false)
+  const [estimateTimeValue, setEstimateTimeValue] = useState<number | ''>('')
+  const [estimateTimeUnit, setEstimateTimeUnit] = useState<'minutes' | 'hours' | 'days'>('hours')
+  const [isSavingEstimate, setIsSavingEstimate] = useState(false)
   const [newImages, setNewImages] = useState<File[]>([])
   const [imagesToDelete, setImagesToDelete] = useState<number[]>([])
   const [isDeletingAttachment, setIsDeletingAttachment] = useState<number | null>(null)
+  const [carouselOpen, setCarouselOpen] = useState(false)
+  const [carouselIndex, setCarouselIndex] = useState(0)
   
   // États pour les solutions
   const [solutions, setSolutions] = useState<TicketSolutionDTO[]>([])
@@ -88,37 +113,46 @@ const TicketDetails = () => {
     }
   }, [isEditModalOpen, editFormData])
 
-  // Charger les images avec authentification
+  // Charger les images avec authentification. Si thumbnail 404, on tente l'URL download (image complète) avant d'abandonner.
   const loadImageUrl = async (attachmentId: number, ticketId: number, isThumbnail: boolean = true) => {
     if (imageUrls[attachmentId]) return imageUrls[attachmentId]
+    if (failedImageIds.has(attachmentId)) return null
+
+    const token = sessionStorage.getItem('token')
+    if (!token) return null
+
+    const tryEndpoint = async (endpoint: string) => {
+      const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } })
+      if (!response.ok) return null
+      const blob = await response.blob()
+      return URL.createObjectURL(blob)
+    }
 
     try {
-      const token = sessionStorage.getItem('token')
-      if (!token) {
-        console.error('Token d\'authentification manquant')
-        return null
-      }
+      const thumbnailUrl = `${API_BASE_URL}/tickets/${ticketId}/attachments/${attachmentId}/thumbnail`
+      const downloadUrl = `${API_BASE_URL}/tickets/${ticketId}/attachments/${attachmentId}/download`
 
-      const endpoint = isThumbnail 
-        ? `${API_BASE_URL}/tickets/${ticketId}/attachments/${attachmentId}/thumbnail`
-        : `${API_BASE_URL}/tickets/${ticketId}/attachments/${attachmentId}/download`
-      
-      const response = await fetch(endpoint, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      })
-
+      let response = await fetch(thumbnailUrl, { headers: { Authorization: `Bearer ${token}` } })
       if (response.ok) {
         const blob = await response.blob()
         const url = URL.createObjectURL(blob)
         setImageUrls(prev => ({ ...prev, [attachmentId]: url }))
         return url
-      } else {
-        console.error('Erreur lors du chargement de l\'image:', response.status, response.statusText)
       }
-    } catch (err) {
-      console.error('Erreur lors du chargement de l\'image:', err)
+      // Thumbnail 404 : tenter l'image complète (download) avant d'abandonner
+      if (response.status === 404 && isThumbnail) {
+        const url = await tryEndpoint(downloadUrl)
+        if (url) {
+          setImageUrls(prev => ({ ...prev, [attachmentId]: url }))
+          return url
+        }
+      }
+      if (response.status === 404) {
+        setFailedImageIds(prev => new Set(prev).add(attachmentId))
+        return null
+      }
+    } catch {
+      setFailedImageIds(prev => new Set(prev).add(attachmentId))
     }
     return null
   }
@@ -179,8 +213,9 @@ const TicketDetails = () => {
   // Charger les catégories KB
   const loadKBCategories = async () => {
     try {
-      const categories = await knowledgeService.getCategories()
-      setKbCategories(Array.isArray(categories) ? categories : [])
+      const raw = await knowledgeService.getCategories()
+      const categories = Array.isArray(raw) ? raw : []
+      setKbCategories(categories)
       if (categories.length > 0 && publishFormData.category_id === 0) {
         setPublishFormData(prev => ({ ...prev, category_id: categories[0].id }))
       }
@@ -256,6 +291,19 @@ const TicketDetails = () => {
     loadKBCategories()
   }, [id])
 
+  useEffect(() => {
+    setHistoryCurrentPage(1)
+  }, [id])
+
+  // Charger le département de l'utilisateur dès que l'auth est disponible (authUser peut être chargé après le premier rendu)
+  useEffect(() => {
+    if (authUser?.department_id) {
+      loadUserDepartment()
+    } else {
+      setUserDepartment(null)
+    }
+  }, [authUser?.id, authUser?.department_id])
+
   // Charger les URLs des images quand les attachments changent
   useEffect(() => {
     if (ticket && attachments.length > 0) {
@@ -296,6 +344,51 @@ const TicketDetails = () => {
       toast.error(err instanceof Error ? err.message : 'Erreur lors de l\'ajout du commentaire')
     } finally {
       setIsSubmittingComment(false)
+    }
+  }
+
+  // Modifier un commentaire (auteur uniquement)
+  const handleStartEditComment = (comment: TicketCommentDTO) => {
+    setEditingCommentId(comment.id)
+    setEditCommentText(comment.comment)
+  }
+  const handleCancelEditComment = () => {
+    setEditingCommentId(null)
+    setEditCommentText('')
+  }
+  const handleSaveComment = async () => {
+    if (!ticket || editingCommentId == null || !editCommentText.trim()) return
+    setIsUpdatingComment(true)
+    try {
+      await ticketService.updateComment(ticket.id, editingCommentId, { comment: editCommentText.trim() })
+      const updatedComments = await ticketService.getComments(ticket.id)
+      setComments(updatedComments)
+      setEditingCommentId(null)
+      setEditCommentText('')
+      toast.success('Commentaire modifié')
+    } catch (err) {
+      console.error('Erreur lors de la modification du commentaire:', err)
+      toast.error(err instanceof Error ? err.message : 'Erreur lors de la modification')
+    } finally {
+      setIsUpdatingComment(false)
+    }
+  }
+
+  // Supprimer un commentaire (auteur uniquement)
+  const handleConfirmDeleteComment = async () => {
+    if (!ticket || !commentToDelete) return
+    setIsDeletingComment(true)
+    try {
+      await ticketService.deleteComment(ticket.id, commentToDelete.id)
+      const updatedComments = await ticketService.getComments(ticket.id)
+      setComments(updatedComments)
+      setCommentToDelete(null)
+      toast.success('Commentaire supprimé')
+    } catch (err) {
+      console.error('Erreur lors de la suppression du commentaire:', err)
+      toast.error(err instanceof Error ? err.message : 'Erreur lors de la suppression')
+    } finally {
+      setIsDeletingComment(false)
     }
   }
 
@@ -404,13 +497,64 @@ const TicketDetails = () => {
     }
   }
 
+  // Résolveur = membre IT de la filiale fournisseur (peut renseigner le temps estimé)
+  const isResolver = Boolean(userDepartment?.is_it_department && userDepartment.filiale?.is_software_provider)
+
+  // L'utilisateur connecté est-il assigné au ticket ? (pour « Soumettre pour validation »)
+  // Comparaison en Number car authUser.id peut être une string (AuthContext) et les IDs ticket sont des numbers
+  const currentUserId = authUser?.id != null ? Number(authUser.id) : null
+  const isAssignedToTicket = ticket && currentUserId != null
+    ? (ticket.assignees?.length
+        ? ticket.assignees.some((a) => Number(a.user?.id) === currentUserId)
+        : Number(ticket.assigned_to?.id) === currentUserId)
+    : false
+
+  // Charger le département de l'utilisateur connecté
+  const loadUserDepartment = async () => {
+    if (!authUser?.department_id) {
+      setUserDepartment(null)
+      return
+    }
+    try {
+      const dept = await departmentService.getById(authUser.department_id)
+      setUserDepartment(dept)
+    } catch (err) {
+      console.error('Erreur lors du chargement du département:', err)
+      setUserDepartment(null)
+    }
+  }
+
+  // Convertir minutes → valeur + unité pour les champs temps estimé
+  const minutesToEstimateForm = (min: number | null | undefined): { value: number | ''; unit: 'minutes' | 'hours' | 'days' } => {
+    if (min == null || min <= 0) return { value: '', unit: 'hours' }
+    if (min >= 480 && min % 480 === 0) return { value: min / 480, unit: 'days' }
+    if (min >= 60) return { value: Math.round((min / 60) * 10) / 10, unit: 'hours' }
+    return { value: min, unit: 'minutes' }
+  }
+  const estimateFormToMinutes = (value: number | '', unit: 'minutes' | 'hours' | 'days'): number => {
+    if (value === '' || Number.isNaN(Number(value)) || Number(value) < 0) return 0
+    const v = Number(value)
+    if (unit === 'minutes') return Math.round(v)
+    if (unit === 'hours') return Math.round(v * 60)
+    return Math.round(v * 480) // jours ouvrés
+  }
+
   // Charger la liste des utilisateurs pour l'assignation
   const loadUsers = async () => {
     setLoadingUsers(true)
     try {
       const usersList = await userService.getAll()
-      // Filtrer uniquement les utilisateurs actifs
-      setUsers(usersList.filter(user => user.is_active))
+      let filteredUsers = usersList.filter(user => user.is_active)
+      
+      // Si l'utilisateur connecté est dans un département IT de la filiale fournisseur,
+      // filtrer pour ne montrer que les utilisateurs du même département
+      if (userDepartment?.is_it_department && userDepartment.filiale?.is_software_provider) {
+        filteredUsers = filteredUsers.filter(user => 
+          user.department_id === userDepartment.id
+        )
+      }
+      
+      setUsers(filteredUsers)
     } catch (err) {
       console.error('Erreur lors du chargement des utilisateurs:', err)
       toast.error('Erreur lors du chargement des utilisateurs')
@@ -435,7 +579,7 @@ const TicketDetails = () => {
   }
 
   // Ouvrir le modal d'assignation
-  const handleOpenAssignModal = () => {
+  const handleOpenAssignModal = async () => {
     setIsAssignModalOpen(true)
     const initialAssignees = ticket?.assignees?.length
       ? ticket.assignees.map(assignee => assignee.user.id)
@@ -443,7 +587,9 @@ const TicketDetails = () => {
     setSelectedUserIds(initialAssignees)
     const leadIdFromAssignees = ticket?.assignees?.find(assignee => assignee.is_lead)?.user.id
     setSelectedLeadId(ticket?.lead?.id || leadIdFromAssignees || '')
-    loadUsers()
+    // Charger le département de l'utilisateur d'abord, puis les utilisateurs
+    await loadUserDepartment()
+    await loadUsers()
   }
 
   // Assigner le ticket
@@ -491,7 +637,7 @@ const TicketDetails = () => {
   // Ouvrir le modal de changement de statut
   const handleOpenStatusModal = () => {
     if (!ticket) return
-    setNewStatus(ticket.status as 'ouvert' | 'en_cours' | 'en_attente' | 'cloture')
+    setNewStatus(ticket.status as 'ouvert' | 'en_cours' | 'en_attente' | 'resolu' | 'cloture')
     setIsStatusModalOpen(true)
   }
 
@@ -515,6 +661,44 @@ const TicketDetails = () => {
     }
   }
 
+  // Soumettre le ticket pour validation (passe en « en_attente » et notifie le propriétaire)
+  const handleSubmitForValidation = async () => {
+    if (!ticket) return
+
+    setIsSubmittingForValidation(true)
+    try {
+      const updatedTicket = await ticketService.changeStatus(ticket.id, 'en_attente')
+      toast.success('Ticket soumis pour validation. Le propriétaire a été notifié.')
+      setTicket(updatedTicket)
+      await loadTicketData()
+    } catch (err) {
+      console.error('Erreur lors de la soumission pour validation:', err)
+      toast.error(err instanceof Error ? err.message : 'Erreur lors de la soumission pour validation')
+    } finally {
+      setIsSubmittingForValidation(false)
+    }
+  }
+
+  // Valider un ticket résolu (le ferme automatiquement)
+  const handleValidateTicket = async () => {
+    if (!ticket) return
+
+    setIsValidating(true)
+    try {
+      const updatedTicket = await ticketService.validateTicket(ticket.id)
+      toast.success('Ticket validé. Il est passé en « Résolu ». Vous pouvez le fermer quand vous le souhaitez.')
+      // Recharger les données du ticket
+      setTicket(updatedTicket)
+      await loadTicketData()
+      setIsValidateModalOpen(false)
+    } catch (error) {
+      console.error('Erreur lors de la validation du ticket:', error)
+      toast.error(error instanceof Error ? error.message : 'Erreur lors de la validation du ticket')
+    } finally {
+      setIsValidating(false)
+    }
+  }
+
   // Fermer le ticket
   const handleClose = async () => {
     if (!ticket) return
@@ -532,6 +716,40 @@ const TicketDetails = () => {
       toast.error(err instanceof Error ? err.message : 'Erreur lors de la fermeture du ticket')
     } finally {
       setIsClosing(false)
+    }
+  }
+
+  // Invalider un ticket résolu (remet à « Ouvert »)
+  const handleInvalidate = async () => {
+    if (!ticket) return
+    setIsInvalidating(true)
+    try {
+      const updatedTicket = await ticketService.changeStatus(ticket.id, 'ouvert')
+      toast.success('Ticket invalidé. Il est repassé en « Ouvert ».')
+      setTicket(updatedTicket)
+      await loadTicketData()
+    } catch (err) {
+      console.error('Erreur lors de l\'invalidation:', err)
+      toast.error(err instanceof Error ? err.message : 'Erreur lors de l\'invalidation du ticket')
+    } finally {
+      setIsInvalidating(false)
+    }
+  }
+
+  // Rouvrir un ticket (clôturé ou résolu) et le remettre à « Ouvert »
+  const handleReopen = async () => {
+    if (!ticket) return
+    setIsReopening(true)
+    try {
+      const updatedTicket = await ticketService.changeStatus(ticket.id, 'ouvert')
+      toast.success('Ticket rouvert. Il est repassé en « Ouvert ».')
+      setTicket(updatedTicket)
+      await loadTicketData()
+    } catch (err) {
+      console.error('Erreur lors de la réouverture:', err)
+      toast.error(err instanceof Error ? err.message : 'Erreur lors de la réouverture du ticket')
+    } finally {
+      setIsReopening(false)
     }
   }
 
@@ -559,9 +777,9 @@ const TicketDetails = () => {
       toast.error('Impossible de modifier le ticket : données non chargées')
       return
     }
-    
-    console.log('Ticket trouvé, chargement des données...')
-    
+
+    await loadUserDepartment()
+
     // Charger les utilisateurs et départements si pas encore chargés
     if (users.length === 0) {
       console.log('Chargement des utilisateurs...')
@@ -571,36 +789,40 @@ const TicketDetails = () => {
       console.log('Chargement des départements...')
       await loadDepartments()
     }
-    
+
     // Trouver l'utilisateur correspondant au requester_id ou au nom du demandeur
-    const requesterUser = ticket.requester_id 
+    const requesterUser = ticket.requester_id
       ? users.find(u => u.id === ticket.requester_id)
       : users.find(u => {
           const fullName = u.first_name && u.last_name ? `${u.first_name} ${u.last_name}` : u.username
           return fullName === ticket.requester_name || u.username === ticket.requester_name
         })
-    
+
     // Trouver le département correspondant au nom du département
     const requesterDept = departments.find(d => d.name === ticket.requester_department || d.code === ticket.requester_department)
-    
+
+    const estimateForm = minutesToEstimateForm(ticket.estimated_time)
+
     setEditSelectedRequesterId(requesterUser?.id || '')
     setEditSelectedDepartmentId(requesterDept?.id || '')
-    
+
     setEditFormData({
       title: ticket.title || '',
       description: ticket.description || '',
       category: ticket.category || '',
-      status: (ticket.status as 'ouvert' | 'en_cours' | 'en_attente' | 'cloture') || 'ouvert',
+      status: (ticket.status as 'ouvert' | 'en_cours' | 'en_attente' | 'resolu' | 'cloture') || 'ouvert',
       priority: (ticket.priority as 'low' | 'medium' | 'high' | 'critical') || 'low',
       requester_name: ticket.requester_name || '',
       requester_department: ticket.requester_department || '',
+      estimated_time_value: estimateForm.value,
+      estimated_time_unit: estimateForm.unit,
     })
     setNewImages([])
     setImagesToDelete([])
 
     loadTicketCategories()
     setIsEditModalOpen(true)
-    
+
     // Charger les URLs des images existantes pour le modal
     if (attachments.length > 0) {
       attachments.forEach((attachment) => {
@@ -608,6 +830,44 @@ const TicketDetails = () => {
           loadImageUrl(attachment.id, ticket.id, true)
         }
       })
+    }
+  }
+
+  // Ouvrir le modal d'estimation du temps (résolveurs)
+  const handleOpenEstimateModal = async () => {
+    if (!ticket) return
+    await loadUserDepartment()
+    const form = minutesToEstimateForm(ticket.estimated_time)
+    setEstimateTimeValue(form.value)
+    setEstimateTimeUnit(form.unit)
+    setIsEstimateModalOpen(true)
+  }
+
+  // Enregistrer le temps estimé (modal dédié)
+  const handleSaveEstimate = async () => {
+    if (!ticket) return
+    const minutes = estimateFormToMinutes(estimateTimeValue, estimateTimeUnit)
+    if (minutes < 0) {
+      toast.error('Veuillez saisir un temps valide')
+      return
+    }
+    setIsSavingEstimate(true)
+    try {
+      const hasExisting = ticket.estimated_time != null && ticket.estimated_time > 0
+      if (hasExisting) {
+        await timesheetService.updateTicketEstimatedTime(ticket.id, minutes)
+      } else {
+        await timesheetService.setTicketEstimatedTime(ticket.id, minutes)
+      }
+      toast.success('Temps estimé enregistré')
+      setIsEstimateModalOpen(false)
+      setEstimateTimeValue('')
+      setEstimateTimeUnit('hours')
+      await loadTicketData()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erreur lors de l\'enregistrement du temps estimé')
+    } finally {
+      setIsSavingEstimate(false)
     }
   }
 
@@ -707,7 +967,16 @@ const TicketDetails = () => {
         // Si aucun département sélectionné mais le nom a changé manuellement, mettre à jour
         updateData.requester_department = editFormData.requester_department
       }
-      
+
+      // Temps estimé (résolveurs uniquement)
+      if (isResolver) {
+        const estimatedMinutes = estimateFormToMinutes(editFormData.estimated_time_value, editFormData.estimated_time_unit)
+        const currentMinutes = ticket.estimated_time ?? 0
+        if (estimatedMinutes !== currentMinutes) {
+          updateData.estimated_time = estimatedMinutes
+        }
+      }
+
       // Mettre à jour le ticket
       if (Object.keys(updateData).length === 0 && !hasAttachmentChanges) {
         toast.info('Aucune modification à enregistrer')
@@ -770,6 +1039,7 @@ const TicketDetails = () => {
       'ouvert': 'Ouvert',
       'en_cours': 'En cours',
       'en_attente': 'En attente',
+      'resolu': 'Résolu',
       'cloture': 'Clôturé',
     }
     return statusMap[status] || status
@@ -835,6 +1105,7 @@ const TicketDetails = () => {
       'priority_changed': 'Priorité modifiée',
       'attachment_added': 'Pièce jointe ajoutée',
       'attachment_removed': 'Pièce jointe supprimée',
+      'validated': 'Ticket validé',
     }
 
     // Traduire les noms de champs
@@ -892,6 +1163,8 @@ const TicketDetails = () => {
     switch (status) {
       case 'cloture':
         return <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+      case 'resolu':
+        return <CheckCircle className="w-5 h-5 text-purple-600 dark:text-purple-400" />
       case 'en_cours':
         return <AlertCircle className="w-5 h-5 text-orange-600 dark:text-orange-400" />
       case 'en_attente':
@@ -906,6 +1179,7 @@ const TicketDetails = () => {
       'ouvert': 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300',
       'en_cours': 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300',
       'en_attente': 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300',
+      'resolu': 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300',
       'cloture': 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300',
     }
     return styles[status] || 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
@@ -965,11 +1239,20 @@ const TicketDetails = () => {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {attachments.map((attachment) => {
                   const imageUrl = imageUrls[attachment.id]
-                  
+                  const imageAttachments = attachments.filter((a) => a.is_image)
+                  const openCarousel = () => {
+                    const idx = imageAttachments.findIndex((a) => a.id === attachment.id)
+                    setCarouselIndex(idx >= 0 ? idx : 0)
+                    setCarouselOpen(true)
+                  }
+                  const handleClick = () => {
+                    if (attachment.is_image) openCarousel()
+                    else handleDownloadAttachment(attachment.id, attachment.file_name)
+                  }
                   return (
                     <div
                       key={attachment.id}
-                      onClick={() => handleDownloadAttachment(attachment.id, attachment.file_name)}
+                      onClick={handleClick}
                       className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors"
                     >
                       {attachment.is_image ? (
@@ -979,7 +1262,6 @@ const TicketDetails = () => {
                             alt={attachment.file_name}
                             className="w-full h-24 object-cover rounded mb-2"
                             onError={(e) => {
-                              // Si l'image ne charge pas, afficher l'icône
                               const target = e.target as HTMLImageElement
                               target.style.display = 'none'
                               const icon = target.nextElementSibling as HTMLElement
@@ -1008,16 +1290,26 @@ const TicketDetails = () => {
 
           {/* Commentaires */}
           <div className="card">
+            {(() => {
+              const visibleComments = comments.filter(
+                (c) => !c.is_internal || (userDepartment?.is_it_department === true)
+              )
+              return (
+                <>
             <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center">
               <MessageSquare className="w-5 h-5 mr-2" />
-              Commentaires ({comments.length})
+              Commentaires ({visibleComments.length})
             </h3>
             <div className="space-y-4">
-              {comments.map((comment) => {
-                // Vérifier si le commentaire est de l'auteur du ticket
+              {visibleComments.map((comment) => {
+                // Auteur du ticket (pour le style aligné à droite)
                 const isAuthor = ticket?.created_by?.id && comment.user.id && 
                   Number(comment.user.id) === Number(ticket.created_by.id)
-                
+                // Auteur du commentaire = utilisateur connecté (peut modifier/supprimer)
+                const isCommentAuthor = comment.user?.id != null && authUser?.id != null &&
+                  Number(comment.user.id) === Number(authUser.id)
+                const isEditing = editingCommentId === comment.id
+
                 return (
                   <div
                     key={comment.id}
@@ -1034,9 +1326,9 @@ const TicketDetails = () => {
                           : 'bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600'
                       }`}
                     >
-                      <div className={`flex items-center mb-2 ${isAuthor ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`flex items-center justify-between gap-2 mb-2 ${isAuthor ? 'flex-row-reverse' : ''}`}>
                         <div className={`flex items-center space-x-2 ${isAuthor ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                          <span className={`font-semibold text-sm ${isAuthor ? 'text-gray-900 dark:text-gray-100' : 'text-gray-900 dark:text-gray-100'}`}>
+                          <span className="font-semibold text-sm text-gray-900 dark:text-gray-100">
                             {comment.user.first_name && comment.user.last_name 
                               ? `${comment.user.first_name} ${comment.user.last_name}`
                               : comment.user.username}
@@ -1051,15 +1343,84 @@ const TicketDetails = () => {
                             </span>
                           )}
                         </div>
+                        {isCommentAuthor && !isEditing && (
+                          <div className={`flex items-center gap-1 ${isAuthor ? 'flex-row-reverse' : ''}`}>
+                            <button
+                              type="button"
+                              onClick={() => handleStartEditComment(comment)}
+                              className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-200/50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-600/50 transition-colors"
+                              title="Modifier"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setCommentToDelete(comment)}
+                              className="p-1.5 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 dark:text-gray-400 dark:hover:text-red-400 dark:hover:bg-red-900/20 transition-colors"
+                              title="Supprimer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <p className={`whitespace-pre-line mb-2 text-gray-800 dark:text-gray-200 leading-relaxed`}>
-                        {comment.comment}
-                      </p>
-                      <div className={`flex ${isAuthor ? 'justify-end' : 'justify-start'}`}>
-                        <span className={`text-xs text-gray-500 dark:text-gray-400`}>
-                          {formatDate(comment.created_at)}
-                        </span>
-                      </div>
+                      {isEditing ? (
+                        <>
+                          <textarea
+                            value={editCommentText}
+                            onChange={(e) => setEditCommentText(e.target.value)}
+                            className="input mb-3 w-full min-h-[80px] text-sm"
+                            rows={3}
+                            placeholder="Modifier le commentaire..."
+                            autoFocus
+                          />
+                          <div className={`flex items-center gap-2 ${isAuthor ? 'justify-end' : 'justify-start'}`}>
+                            <button
+                              type="button"
+                              onClick={handleCancelEditComment}
+                              className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                            >
+                              Annuler
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleSaveComment}
+                              disabled={!editCommentText.trim() || isUpdatingComment}
+                              className="px-3 py-1.5 text-sm font-medium text-white bg-primary-600 dark:bg-primary-500 rounded-lg hover:bg-primary-700 dark:hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                              {isUpdatingComment ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin inline mr-1" />
+                                  Enregistrement...
+                                </>
+                              ) : (
+                                'Enregistrer'
+                              )}
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="whitespace-pre-line mb-2 text-gray-800 dark:text-gray-200 leading-relaxed">
+                            {comment.comment}
+                          </p>
+                          <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${isAuthor ? 'justify-end' : 'justify-start'}`}>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                              {formatDate(comment.created_at)}
+                            </span>
+                            {comment.updated_at && comment.created_at && new Date(comment.updated_at).getTime() - new Date(comment.created_at).getTime() > 1000 && (
+                              <>
+                                <span className="text-xs px-2 py-0.5 rounded font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                                  Modifié
+                                </span>
+                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                  Modifié le {formatDate(comment.updated_at)}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 )
@@ -1073,15 +1434,18 @@ const TicketDetails = () => {
                   placeholder="Ajouter un commentaire..."
                 />
                 <div className="flex items-center justify-between">
-                  <label className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
-                    <input
-                      type="checkbox"
-                      checked={isInternalComment}
-                      onChange={(e) => setIsInternalComment(e.target.checked)}
-                      className="rounded border-gray-300 dark:border-gray-600"
-                    />
-                    <span>Commentaire interne (visible uniquement par l'IT)</span>
-                  </label>
+                  {userDepartment?.is_it_department && (
+                    <label className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={isInternalComment}
+                        onChange={(e) => setIsInternalComment(e.target.checked)}
+                        className="rounded border-gray-300 dark:border-gray-600"
+                      />
+                      <span>Commentaire interne (visible uniquement par l'IT)</span>
+                    </label>
+                  )}
+                  {!userDepartment?.is_it_department && <div className="flex-1" />}
                   <button
                     onClick={handleAddComment}
                     disabled={!newComment.trim() || isSubmittingComment}
@@ -1092,6 +1456,9 @@ const TicketDetails = () => {
                 </div>
               </div>
             </div>
+                </>
+              )
+            })()}
           </div>
 
           {/* Solutions documentées - Affichée uniquement si le ticket est cloturé */}
@@ -1196,40 +1563,58 @@ const TicketDetails = () => {
               {history.length === 0 ? (
                 <p className="text-sm text-gray-500 dark:text-gray-400">Aucun historique disponible</p>
               ) : (
-                history.map((item) => (
-                  <div key={item.id} className="flex items-start space-x-3">
-                    <div className="w-2 h-2 rounded-full bg-primary-500 dark:bg-primary-400 mt-2" />
-                    <div className="flex-1">
-                      <p className="text-sm text-gray-900 dark:text-gray-100">
-                        <span className="font-medium">{formatHistoryAction(item.action, item.description, item.field_name, item.old_value, item.new_value)}</span>
-                        {' par '}
-                        {item.user.first_name && item.user.last_name
-                          ? `${item.user.first_name} ${item.user.last_name}`
-                          : item.user.username}
-                      </p>
-                      {item.field_name && item.old_value && item.new_value && item.field_name !== 'assigned_to' && (
-                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                          {(() => {
-                            const fieldMap: Record<string, string> = {
-                              'assigned_to': 'Assigné à',
-                              'status': 'Statut',
-                              'priority': 'Priorité',
-                              'title': 'Titre',
-                              'description': 'Description',
-                            }
-                            const translatedField = fieldMap[item.field_name] || item.field_name
-                            return (
-                              <>
-                                {translatedField}: <span className="line-through">{item.old_value}</span> → <span className="font-medium">{item.new_value}</span>
-                              </>
-                            )
-                          })()}
-                        </p>
-                      )}
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{formatDate(item.created_at)}</p>
-                    </div>
-                  </div>
-                ))
+                (() => {
+                  const historyTotalPages = Math.max(1, Math.ceil(history.length / historyItemsPerPage))
+                  const historyStartIndex = (historyCurrentPage - 1) * historyItemsPerPage
+                  const paginatedHistory = history.slice(historyStartIndex, historyStartIndex + historyItemsPerPage)
+                  return (
+                    <>
+                      {paginatedHistory.map((item) => (
+                        <div key={item.id} className="flex items-start space-x-3">
+                          <div className="w-2 h-2 rounded-full bg-primary-500 dark:bg-primary-400 mt-2" />
+                          <div className="flex-1">
+                            <p className="text-sm text-gray-900 dark:text-gray-100">
+                              <span className="font-medium">{formatHistoryAction(item.action, item.description, item.field_name, item.old_value, item.new_value)}</span>
+                              {' par '}
+                              {item.user.first_name && item.user.last_name
+                                ? `${item.user.first_name} ${item.user.last_name}`
+                                : item.user.username}
+                            </p>
+                            {item.field_name && item.old_value && item.new_value && item.field_name !== 'assigned_to' && (
+                              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                                {(() => {
+                                  const fieldMap: Record<string, string> = {
+                                    'assigned_to': 'Assigné à',
+                                    'status': 'Statut',
+                                    'priority': 'Priorité',
+                                    'title': 'Titre',
+                                    'description': 'Description',
+                                  }
+                                  const translatedField = fieldMap[item.field_name] || item.field_name
+                                  return (
+                                    <>
+                                      {translatedField}: <span className="line-through">{item.old_value}</span> → <span className="font-medium">{item.new_value}</span>
+                                    </>
+                                  )
+                                })()}
+                              </p>
+                            )}
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{formatDate(item.created_at)}</p>
+                          </div>
+                        </div>
+                      ))}
+                      <Pagination
+                        currentPage={historyCurrentPage}
+                        totalPages={historyTotalPages}
+                        totalItems={history.length}
+                        itemsPerPage={historyItemsPerPage}
+                        onPageChange={setHistoryCurrentPage}
+                        onItemsPerPageChange={(v) => { setHistoryItemsPerPage(v); setHistoryCurrentPage(1) }}
+                        itemsPerPageOptions={[10, 25, 50]}
+                      />
+                    </>
+                  )
+                })()
               )}
             </div>
           </div>
@@ -1260,6 +1645,28 @@ const TicketDetails = () => {
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Source</p>
                 <span className="text-gray-900 dark:text-gray-100 capitalize">{ticket.source}</span>
               </div>
+              {ticket.filiale && (
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Filiale</p>
+                  <div className="text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                    <span>{ticket.filiale.name}</span>
+                    {ticket.filiale.is_software_provider && (
+                      <span className="badge bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200">
+                        Fournisseur IT
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+              {ticket.software && (
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Logiciel concerné</p>
+                  <div className="text-gray-900 dark:text-gray-100">
+                    {ticket.software.name}
+                    {ticket.software.version ? ` - v${ticket.software.version}` : ''}
+                  </div>
+                </div>
+              )}
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Créé le</p>
                 <p className="text-gray-900 dark:text-gray-100">{formatDate(ticket.created_at)}</p>
@@ -1272,6 +1679,19 @@ const TicketDetails = () => {
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Fermé le</p>
                   <p className="text-gray-900 dark:text-gray-100">{formatDate(ticket.closed_at)}</p>
+                </div>
+              )}
+              {ticket.validated_at && (
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Validé le</p>
+                  <p className="text-gray-900 dark:text-gray-100">{formatDate(ticket.validated_at)}</p>
+                  {ticket.validated_by && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      par {ticket.validated_by.first_name && ticket.validated_by.last_name
+                        ? `${ticket.validated_by.first_name} ${ticket.validated_by.last_name}`
+                        : ticket.validated_by.username}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -1298,11 +1718,16 @@ const TicketDetails = () => {
                               ).toUpperCase()}
                             </span>
                           </div>
-                          <span className="text-sm text-gray-900 dark:text-gray-100">
-                            {assignee.user.first_name && assignee.user.last_name
-                              ? `${assignee.user.first_name} ${assignee.user.last_name}`
-                              : assignee.user.username || 'Utilisateur inconnu'}
-                          </span>
+                          <div>
+                            <span className="text-sm text-gray-900 dark:text-gray-100">
+                              {assignee.user.first_name && assignee.user.last_name
+                                ? `${assignee.user.first_name} ${assignee.user.last_name}`
+                                : assignee.user.username || 'Utilisateur inconnu'}
+                            </span>
+                            {assignee.user.email && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400">{assignee.user.email}</p>
+                            )}
+                          </div>
                         </div>
                         {assignee.is_lead && (
                           <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200">
@@ -1325,11 +1750,16 @@ const TicketDetails = () => {
                           ).toUpperCase()}
                         </span>
                       </div>
-                      <span className="text-sm text-gray-900 dark:text-gray-100">
-                        {ticket.assigned_to.first_name && ticket.assigned_to.last_name
-                          ? `${ticket.assigned_to.first_name} ${ticket.assigned_to.last_name}`
-                          : ticket.assigned_to.username || 'Utilisateur inconnu'}
-                      </span>
+                      <div>
+                        <span className="text-sm text-gray-900 dark:text-gray-100">
+                          {ticket.assigned_to.first_name && ticket.assigned_to.last_name
+                            ? `${ticket.assigned_to.first_name} ${ticket.assigned_to.last_name}`
+                            : ticket.assigned_to.username || 'Utilisateur inconnu'}
+                        </span>
+                        {ticket.assigned_to.email && (
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{ticket.assigned_to.email}</p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ) : (
@@ -1339,13 +1769,13 @@ const TicketDetails = () => {
                 )}
               </div>
               <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Créé par</p>
-                {ticket.created_by && ticket.created_by.id ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Créé par (demandeur)</p>
+                {ticket.requester && ticket.requester.id ? (
                   <div className="flex items-center space-x-2">
                     <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
                       <span className="text-primary-600 dark:text-primary-400 font-semibold text-sm">
                         {(() => {
-                          const user = ticket.created_by
+                          const user = ticket.requester
                           const initial = user.first_name?.[0] || user.last_name?.[0] || user.username?.[0] || user.email?.[0] || '?'
                           return initial.toUpperCase()
                         })()}
@@ -1354,7 +1784,7 @@ const TicketDetails = () => {
                     <div>
                       <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                         {(() => {
-                          const user = ticket.created_by
+                          const user = ticket.requester
                           if (user.first_name && user.last_name) {
                             return `${user.first_name} ${user.last_name}`
                           }
@@ -1364,33 +1794,40 @@ const TicketDetails = () => {
                           if (user.email) {
                             return user.email
                           }
-                          return `Utilisateur #${user.id}`
+                          return ticket.requester_name || `Utilisateur #${user.id}`
                         })()}
                       </p>
-                      {ticket.created_by.department && (
+                      {ticket.requester.department && (
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {ticket.created_by.department.name} {ticket.created_by.department.code ? `(${ticket.created_by.department.code})` : ''}
+                          {ticket.requester.department.name} {ticket.requester.department.code ? `(${ticket.requester.department.code})` : ''}
+                        </p>
+                      )}
+                      {!ticket.requester.department && ticket.requester_department && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {ticket.requester_department}
                         </p>
                       )}
                     </div>
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Non disponible</p>
-                )}
-              </div>
-              <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Demandeur</p>
-                <div className="flex items-center space-x-2">
-                  <User className="w-5 h-5 text-gray-400 dark:text-gray-500" />
-                  <div>
-                    <p className="text-gray-900 dark:text-gray-100 font-medium">{ticket.requester_name || 'N/A'}</p>
-                    {ticket.requester_department && (
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        <span className="font-medium">Département:</span> {ticket.requester_department}
+                  <div className="flex items-center space-x-2">
+                    <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
+                      <span className="text-primary-600 dark:text-primary-400 font-semibold text-sm">
+                        {(ticket.requester_name || '?')[0].toUpperCase()}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {ticket.requester_name || 'Non renseigné'}
                       </p>
-                    )}
+                      {ticket.requester_department && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {ticket.requester_department}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           </div>
@@ -1418,38 +1855,90 @@ const TicketDetails = () => {
           <div className="card">
             <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">Actions</h3>
             <div className="space-y-2">
-              {hasPermission('tickets.update') && (
-                <button 
-                  onClick={handleOpenEditModal}
-                  className="w-full btn btn-primary"
+              {isResolver && (
+                <button
+                  onClick={handleOpenEstimateModal}
+                  className="w-full btn btn-secondary flex items-center justify-center"
                   type="button"
+                  title="Saisir ou modifier le temps estimé pour ce ticket. Le ticket passera automatiquement en « En cours » si il est « Ouvert »."
                 >
-                  Modifier
+                  <Timer className="w-4 h-4 mr-2" />
+                  Estimer le temps
                 </button>
               )}
               {hasPermission('tickets.assign') && (
-                <button 
+                <button
                   onClick={handleOpenAssignModal}
                   className="w-full btn btn-secondary flex items-center justify-center"
+                  title={ticket.assigned_to ? 'Changer les personnes assignées à ce ticket' : 'Assigner des personnes à ce ticket'}
                 >
                   <UserPlus className="w-4 h-4 mr-2" />
                   {ticket.assigned_to ? 'Réassigner' : 'Assigner'}
                 </button>
               )}
               {hasPermission('tickets.update') && (
-                <button 
+                <button
                   onClick={handleOpenStatusModal}
                   className="w-full btn btn-secondary"
                   disabled={isChangingStatus}
+                  title="Changer manuellement le statut du ticket"
                 >
                   {isChangingStatus ? 'Changement...' : 'Changer le statut'}
                 </button>
               )}
-              {hasPermission('tickets.validate') && ticket.status !== 'cloture' && (
-                <button 
+              {/* Soumettre pour validation : uniquement les assignés (IT, filiale fournisseur). Passe le ticket en « En attente ». */}
+              {hasPermission('tickets.update') && userDepartment?.is_it_department && userDepartment?.filiale?.is_software_provider && isAssignedToTicket && ticket.status !== 'en_attente' && ticket.status !== 'resolu' && ticket.status !== 'cloture' && (
+                <button
+                  onClick={handleSubmitForValidation}
+                  className="w-full btn btn-primary flex items-center justify-center"
+                  disabled={isSubmittingForValidation}
+                  title="Passe le ticket en « En attente » et notifie le demandeur pour qu'il valide ou invalide."
+                >
+                  <CheckSquare className="w-4 h-4 mr-2" />
+                  {isSubmittingForValidation ? 'Envoi...' : 'Soumettre pour validation'}
+                </button>
+              )}
+              {/* Valider le ticket : pour les tickets en attente de validation (demandeur valide → statut « Résolu ») */}
+              {ticket.status === 'en_attente' && (hasPermission('tickets.validate') || hasPermission('tickets.validate_own')) && (
+                <button
+                  onClick={() => setIsValidateModalOpen(true)}
+                  className="w-full btn btn-success flex items-center justify-center"
+                  disabled={isValidating}
+                  title="Confirmer que la résolution est correcte. Le ticket passera en « Résolu »."
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  {isValidating ? 'Validation...' : 'Valider le ticket'}
+                </button>
+              )}
+              {/* Invalider : pour les tickets résolus (demandeur ou IT remet le ticket à « Ouvert ») */}
+              {ticket.status === 'resolu' && (hasPermission('tickets.validate') || hasPermission('tickets.validate_own')) && (
+                <button
+                  onClick={handleInvalidate}
+                  className="w-full btn btn-secondary flex items-center justify-center"
+                  disabled={isInvalidating}
+                  title="La résolution ne convient pas. Le ticket repasse en « Ouvert » pour un nouveau traitement."
+                >
+                  {isInvalidating ? 'Invalidation...' : 'Invalider'}
+                </button>
+              )}
+              {/* Ouvrir le ticket : pour les tickets clôturés ou résolus, remet à « Ouvert » */}
+              {(ticket.status === 'cloture' || ticket.status === 'resolu') && hasPermission('tickets.update') && (
+                <button
+                  onClick={handleReopen}
+                  className="w-full btn btn-secondary flex items-center justify-center"
+                  disabled={isReopening}
+                  title="Rouvrir le ticket et le remettre en statut « Ouvert »."
+                >
+                  {isReopening ? 'Réouverture...' : 'Ouvrir le ticket'}
+                </button>
+              )}
+              {/* Fermer le ticket : visible pour tout statut sauf déjà clôturé (passe à « Clôturé ») */}
+              {ticket.status !== 'cloture' && hasPermission('tickets.update') && (
+                <button
                   onClick={() => setIsCloseModalOpen(true)}
                   className="w-full btn btn-secondary"
                   disabled={isClosing}
+                  title="Clôturer définitivement le ticket (statut « Clôturé »)."
                 >
                   {isClosing ? 'Fermeture...' : 'Fermer le ticket'}
                 </button>
@@ -1458,6 +1947,7 @@ const TicketDetails = () => {
                 <button
                   onClick={() => setIsDeleteModalOpen(true)}
                   className="w-full btn btn-danger flex items-center justify-center"
+                  title="Supprimer définitivement le ticket"
                 >
                   <Trash2 className="w-4 h-4 mr-2" />
                   Supprimer le ticket
@@ -1480,6 +1970,13 @@ const TicketDetails = () => {
         size="md"
       >
         <div className="space-y-4">
+          {userDepartment?.is_it_department && userDepartment.filiale?.is_software_provider && (
+            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+              <p className="text-sm text-blue-800 dark:text-blue-200">
+                <span className="font-medium">Note :</span> En tant que membre du département IT, vous ne pouvez assigner que les membres de votre département ({userDepartment.name}).
+              </p>
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Utilisateurs assignés <span className="text-red-500">*</span>
@@ -1488,6 +1985,14 @@ const TicketDetails = () => {
               <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center">
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
                 <span className="text-sm text-gray-500 dark:text-gray-400">Chargement des utilisateurs...</span>
+              </div>
+            ) : users.length === 0 ? (
+              <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {userDepartment?.is_it_department && userDepartment.filiale?.is_software_provider
+                    ? 'Aucun autre membre dans votre département IT'
+                    : 'Aucun utilisateur disponible'}
+                </p>
               </div>
             ) : (
               <div className="max-h-56 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700">
@@ -1562,6 +2067,7 @@ const TicketDetails = () => {
                       label: assignee.user.first_name && assignee.user.last_name
                         ? `${assignee.user.first_name} ${assignee.user.last_name}`
                         : assignee.user.username,
+                      email: assignee.user.email,
                       isLead: assignee.is_lead,
                     }))
                   : ticket.assigned_to
@@ -1570,15 +2076,17 @@ const TicketDetails = () => {
                         label: ticket.assigned_to.first_name && ticket.assigned_to.last_name
                           ? `${ticket.assigned_to.first_name} ${ticket.assigned_to.last_name}`
                           : ticket.assigned_to.username,
+                        email: ticket.assigned_to.email,
                         isLead: false,
                       }]
                     : []
                 ).map((assignee) => (
                   <span
                     key={assignee.id}
-                    className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-700 text-blue-800 dark:text-blue-200"
+                    className="inline-flex flex-col items-start px-2 py-1 rounded-lg text-xs bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-700 text-blue-800 dark:text-blue-200"
                   >
-                    {assignee.label}
+                    <span>{assignee.label}</span>
+                    {assignee.email && <span className="text-gray-500 dark:text-gray-400 font-normal">{assignee.email}</span>}
                     {assignee.isLead && (
                       <span className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] bg-blue-600 text-white">Lead</span>
                     )}
@@ -1690,22 +2198,6 @@ const TicketDetails = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Statut
-              </label>
-              <select
-                value={editFormData.status}
-                onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value as 'ouvert' | 'en_cours' | 'en_attente' | 'cloture' })}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
-              >
-                <option value="ouvert">Ouvert</option>
-                <option value="en_cours">En cours</option>
-                <option value="en_attente">En attente</option>
-                <option value="cloture">Clôturé</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Priorité
               </label>
               <select
@@ -1783,6 +2275,49 @@ const TicketDetails = () => {
             </div>
           </div>
 
+          {/* Temps estimé (résolveurs uniquement) */}
+          {isResolver && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Temps estimé
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    step={editFormData.estimated_time_unit === 'minutes' ? 1 : 0.5}
+                    value={editFormData.estimated_time_value === '' ? '' : editFormData.estimated_time_value}
+                    onChange={(e) =>
+                      setEditFormData({
+                        ...editFormData,
+                        estimated_time_value: e.target.value === '' ? '' : parseFloat(e.target.value) || '',
+                      })
+                    }
+                    className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    placeholder="—"
+                  />
+                  <select
+                    value={editFormData.estimated_time_unit}
+                    onChange={(e) =>
+                      setEditFormData({ ...editFormData, estimated_time_unit: e.target.value as 'minutes' | 'hours' | 'days' })
+                    }
+                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 w-28"
+                  >
+                    <option value="minutes">Minutes</option>
+                    <option value="hours">Heures</option>
+                    <option value="days">Jours</option>
+                  </select>
+                </div>
+                {editFormData.estimated_time_value !== '' && editFormData.estimated_time_value > 0 && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    = {formatTime(estimateFormToMinutes(editFormData.estimated_time_value, editFormData.estimated_time_unit))}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Gestion des images */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1794,21 +2329,36 @@ const TicketDetails = () => {
                   .filter(a => a.is_image && !imagesToDelete.includes(a.id))
                   .map((attachment) => {
                     const imageUrl = imageUrls[attachment.id]
+                    const imageList = attachments.filter((a) => a.is_image)
+                    const idx = imageList.findIndex((a) => a.id === attachment.id)
+                    const openCarouselHere = () => {
+                      setCarouselIndex(idx >= 0 ? idx : 0)
+                      setCarouselOpen(true)
+                    }
                     return (
                       <div key={attachment.id} className="relative group">
-                        {imageUrl ? (
-                          <img
-                            src={imageUrl}
-                            alt={attachment.file_name}
-                            className="w-full h-24 object-cover rounded-lg border border-gray-300 dark:border-gray-600"
-                          />
-                        ) : (
-                          <div className="w-full h-24 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600">
-                            <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-                          </div>
-                        )}
+                        <div
+                          className="cursor-pointer"
+                          onClick={openCarouselHere}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => e.key === 'Enter' && openCarouselHere()}
+                          aria-label="Agrandir l'image"
+                        >
+                          {imageUrl ? (
+                            <img
+                              src={imageUrl}
+                              alt={attachment.file_name}
+                              className="w-full h-24 object-cover rounded-lg border border-gray-300 dark:border-gray-600"
+                            />
+                          ) : (
+                            <div className="w-full h-24 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600">
+                              <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                            </div>
+                          )}
+                        </div>
                         <button
-                          onClick={() => handleDeleteImage(attachment.id)}
+                          onClick={(e) => { e.stopPropagation(); handleDeleteImage(attachment.id) }}
                           disabled={isDeletingAttachment === attachment.id}
                           className="absolute top-1 right-1 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
                           title="Supprimer"
@@ -1910,6 +2460,85 @@ const TicketDetails = () => {
                 <>
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
                   Modification...
+                </>
+              ) : (
+                'Enregistrer'
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal Estimer le temps (résolveurs) */}
+      <Modal
+        isOpen={isEstimateModalOpen}
+        onClose={() => {
+          setIsEstimateModalOpen(false)
+          setEstimateTimeValue('')
+          setEstimateTimeUnit('hours')
+        }}
+        title="Estimer le temps"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Saisissez le temps estimé pour traiter ce ticket.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Temps estimé
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min={0}
+                step={estimateTimeUnit === 'minutes' ? 1 : 0.5}
+                value={estimateTimeValue === '' ? '' : estimateTimeValue}
+                onChange={(e) =>
+                  setEstimateTimeValue(e.target.value === '' ? '' : parseFloat(e.target.value) || '')
+                }
+                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="—"
+              />
+              <select
+                value={estimateTimeUnit}
+                onChange={(e) => setEstimateTimeUnit(e.target.value as 'minutes' | 'hours' | 'days')}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 w-28"
+              >
+                <option value="minutes">Minutes</option>
+                <option value="hours">Heures</option>
+                <option value="days">Jours</option>
+              </select>
+            </div>
+            {estimateTimeValue !== '' && estimateTimeValue > 0 && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                = {formatTime(estimateFormToMinutes(estimateTimeValue, estimateTimeUnit))}
+              </p>
+            )}
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsEstimateModalOpen(false)
+                setEstimateTimeValue('')
+                setEstimateTimeUnit('hours')
+              }}
+              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 text-gray-800 dark:text-gray-200 rounded-lg transition-colors"
+              disabled={isSavingEstimate}
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveEstimate}
+              disabled={isSavingEstimate || (estimateTimeValue === '' || Number(estimateTimeValue) < 0)}
+              className="px-4 py-2 bg-primary-600 hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+            >
+              {isSavingEstimate ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  Enregistrement...
                 </>
               ) : (
                 'Enregistrer'
@@ -2109,7 +2738,7 @@ const TicketDetails = () => {
         onClose={() => {
           setIsStatusModalOpen(false)
           if (ticket) {
-            setNewStatus(ticket.status as 'ouvert' | 'en_cours' | 'en_attente' | 'cloture')
+            setNewStatus(ticket.status as 'ouvert' | 'en_cours' | 'en_attente' | 'resolu' | 'cloture')
           }
         }}
         title="Changer le statut du ticket"
@@ -2132,6 +2761,7 @@ const TicketDetails = () => {
               <option value="ouvert">Ouvert</option>
               <option value="en_cours">En cours</option>
               <option value="en_attente">En attente</option>
+              <option value="resolu">Résolu</option>
               <option value="cloture">Clôturé</option>
             </select>
           </div>
@@ -2141,7 +2771,7 @@ const TicketDetails = () => {
               onClick={() => {
                 setIsStatusModalOpen(false)
                 if (ticket) {
-                  setNewStatus(ticket.status as 'ouvert' | 'en_cours' | 'en_attente' | 'cloture')
+                  setNewStatus(ticket.status as 'ouvert' | 'en_cours' | 'en_attente' | 'resolu' | 'cloture')
                 }
               }}
               className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
@@ -2177,7 +2807,35 @@ const TicketDetails = () => {
         isLoading={isClosing}
       />
 
-      {/* Modal de confirmation de suppression */}
+      {/* Modal de confirmation de validation */}
+      <ConfirmModal
+        isOpen={isValidateModalOpen}
+        onClose={() => setIsValidateModalOpen(false)}
+        onConfirm={handleValidateTicket}
+        title="Valider le ticket"
+        message={
+          ticket
+            ? `Êtes-vous sûr de vouloir valider le ticket "${ticket.code || ticket.title}" ? Le ticket sera automatiquement fermé après validation.`
+            : 'Êtes-vous sûr de vouloir valider ce ticket ? Le ticket sera automatiquement fermé après validation.'
+        }
+        confirmText="Valider"
+        cancelText="Annuler"
+        isLoading={isValidating}
+      />
+
+      {/* Modal de confirmation de suppression d'un commentaire */}
+      <ConfirmModal
+        isOpen={commentToDelete != null}
+        onClose={() => setCommentToDelete(null)}
+        onConfirm={handleConfirmDeleteComment}
+        title="Supprimer le commentaire"
+        message="Êtes-vous sûr de vouloir supprimer ce commentaire ? Cette action est irréversible."
+        confirmText="Supprimer"
+        cancelText="Annuler"
+        isLoading={isDeletingComment}
+      />
+
+      {/* Modal de confirmation de suppression du ticket */}
       <ConfirmModal
         isOpen={isDeleteModalOpen}
         onClose={() => {
@@ -2194,6 +2852,22 @@ const TicketDetails = () => {
         cancelText="Annuler"
         isLoading={isDeleting}
       />
+
+      {/* Carousel / lightbox des images (popup au clic sur une image) */}
+      {carouselOpen && ticket && (
+        <ImageCarousel
+          images={attachments
+            .filter((a) => a.is_image)
+            .map((a) => ({
+              id: a.id,
+              url: imageUrls[a.id] ?? null,
+              fileName: a.file_name,
+            }))}
+          currentIndex={Math.min(carouselIndex, attachments.filter((a) => a.is_image).length - 1)}
+          onClose={() => setCarouselOpen(false)}
+          onIndexChange={setCarouselIndex}
+        />
+      )}
     </div>
   )
 }

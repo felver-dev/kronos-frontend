@@ -1,27 +1,33 @@
 import { apiRequest, API_BASE_URL } from '../config/api'
 import { UserDTO } from './userService'
+import { FilialeDTO } from './filialeService'
+import { SoftwareDTO } from './softwareService'
 
 export interface CreateTicketRequest {
   title: string
   description: string
   category: string
-  source: 'mail' | 'appel' | 'direct' | 'whatsapp'
+  source: 'mail' | 'appel' | 'direct' | 'whatsapp' | 'kronos'
   priority?: 'low' | 'medium' | 'high' | 'critical'
   estimated_time?: number
   requester_id?: number // ID du demandeur (prioritaire sur requester_name)
   requester_name?: string // Nom de la personne qui a fait la demande (obligatoire si requester_id non fourni)
   requester_department: string // Département du demandeur (ex: DAF)
+  filiale_id?: number // ID de la filiale (sera automatiquement défini depuis le créateur si non fourni)
+  software_id?: number // ID du logiciel concerné
 }
 
 export interface UpdateTicketRequest {
   title?: string
   description?: string
   category?: string
-  status?: 'ouvert' | 'en_cours' | 'en_attente' | 'cloture'
+  status?: 'ouvert' | 'en_cours' | 'en_attente' | 'resolu' | 'cloture'
   priority?: 'low' | 'medium' | 'high' | 'critical'
   requester_id?: number // ID du demandeur (prioritaire sur requester_name)
   requester_name?: string // Nom du demandeur (fallback)
   requester_department?: string
+  software_id?: number // ID du logiciel concerné
+  estimated_time?: number // Temps estimé en minutes (résolveurs IT)
 }
 
 export interface AssignTicketRequest {
@@ -51,6 +57,13 @@ export interface TicketDTO {
   requester?: UserDTO // Demandeur (relation vers users)
   requester_name?: string // Nom de la personne qui a fait la demande (fallback pour demandeurs externes)
   requester_department?: string // Département du demandeur
+  filiale_id?: number // ID de la filiale
+  filiale?: FilialeDTO // Filiale associée
+  software_id?: number // ID du logiciel concerné
+  software?: SoftwareDTO // Logiciel associé
+  validated_by_user_id?: number // ID de l'utilisateur qui a validé le ticket
+  validated_by?: UserDTO // Utilisateur qui a validé le ticket
+  validated_at?: string // Date de validation
   estimated_time?: number
   actual_time?: number
   primary_image?: string
@@ -72,6 +85,10 @@ export interface TicketCommentDTO {
 export interface CreateTicketCommentRequest {
   comment: string
   is_internal?: boolean
+}
+
+export interface UpdateTicketCommentRequest {
+  comment: string
 }
 
 export interface TicketAttachmentDTO {
@@ -122,9 +139,18 @@ export const ticketService = {
     })
   },
 
-  // Récupérer tous les tickets avec pagination
-  getAll: async (page: number = 1, limit: number = 20): Promise<TicketListResponse> => {
-    return apiRequest<TicketListResponse>(`/tickets?page=${page}&limit=${limit}`)
+  // Récupérer tous les tickets avec pagination et filtres optionnels
+  getAll: async (
+    page: number = 1,
+    limit: number = 20,
+    opts?: { scope?: 'department' | 'filiale' | 'global'; status?: string; filiale_id?: number; user_id?: number }
+  ): Promise<TicketListResponse> => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+    if (opts?.scope) params.append('scope', opts.scope)
+    if (opts?.status) params.append('status', opts.status)
+    if (opts?.filiale_id != null) params.append('filiale_id', String(opts.filiale_id))
+    if (opts?.user_id != null) params.append('user_id', String(opts.user_id))
+    return apiRequest<TicketListResponse>(`/tickets?${params.toString()}`)
   },
 
   // Récupérer un ticket par ID
@@ -172,6 +198,13 @@ export const ticketService = {
   // Fermer un ticket
   close: async (id: number): Promise<TicketDTO> => {
     return apiRequest<TicketDTO>(`/tickets/${id}/close`, {
+      method: 'POST',
+    })
+  },
+
+  // Valider un ticket résolu (le ferme automatiquement)
+  validateTicket: async (id: number): Promise<TicketDTO> => {
+    return apiRequest<TicketDTO>(`/tickets/${id}/validate`, {
       method: 'POST',
     })
   },
@@ -241,6 +274,21 @@ export const ticketService = {
   // Récupérer les commentaires d'un ticket
   getComments: async (ticketId: number): Promise<TicketCommentDTO[]> => {
     return apiRequest<TicketCommentDTO[]>(`/tickets/${ticketId}/comments`)
+  },
+
+  // Modifier un commentaire (seul l'auteur peut modifier)
+  updateComment: async (ticketId: number, commentId: number, data: UpdateTicketCommentRequest): Promise<TicketCommentDTO> => {
+    return apiRequest<TicketCommentDTO>(`/tickets/${ticketId}/comments/${commentId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+
+  // Supprimer un commentaire (seul l'auteur peut supprimer)
+  deleteComment: async (ticketId: number, commentId: number): Promise<void> => {
+    return apiRequest<void>(`/tickets/${ticketId}/comments/${commentId}`, {
+      method: 'DELETE',
+    })
   },
 
   // Récupérer l'historique d'un ticket

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link, useLocation } from 'react-router-dom'
-import { Ticket, Plus, Search, Filter, Eye, Edit, Trash2, AlertCircle, Image as ImageIcon, X, Loader2, Calendar, XCircle } from 'lucide-react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { Ticket, Plus, Search, Filter, Eye, Edit, Trash2, AlertCircle, Image as ImageIcon, X, Loader2, Calendar, XCircle, Building2 } from 'lucide-react'
 import Modal from '../../components/Modal'
 import Pagination from '../../components/Pagination'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -8,10 +8,13 @@ import { ticketService, CreateTicketRequest, TicketDTO, TicketAttachmentDTO, Upd
 import { ticketCategoryService, TicketCategoryDTO } from '../../services/ticketCategoryService'
 import { userService, UserDTO } from '../../services/userService'
 import { departmentService, DepartmentDTO } from '../../services/departmentService'
+import { filialeService, FilialeDTO } from '../../services/filialeService'
+import { softwareService, SoftwareDTO } from '../../services/softwareService'
 import { useToastContext } from '../../contexts/ToastContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { AccessDenied } from '../../components/AccessDenied'
 import { API_BASE_URL } from '../../config/api'
+import { TicketInternesTab } from './TicketInternesTab'
 
 // Fonction utilitaire pour obtenir le nom du demandeur
 const getRequesterName = (ticket: TicketDTO): string => {
@@ -29,19 +32,33 @@ const Tickets = () => {
   const { user, hasPermission } = useAuth()
   const location = useLocation()
   const basePath = location.pathname.startsWith('/employee') ? '/employee' : '/admin'
+
+  // Département de l'utilisateur (pour détecter résolveur = IT fournisseur)
+  const [userDepartment, setUserDepartment] = useState<DepartmentDTO | null>(null)
+
+  // Résolveur = département IT de la filiale fournisseur → même formulaire de création que l'admin
+  const isResolver = Boolean(userDepartment?.is_it_department && userDepartment.filiale?.is_software_provider)
+  const canCreateLikeAdmin = hasPermission('tickets.create_any_filiale') || isResolver
+
+  // Vérifier si l'utilisateur peut sélectionner la source (admin ou résolveur)
+  const canSelectSource = canCreateLikeAdmin
+  
   const [searchTerm, setSearchTerm] = useState('')
   const [isFiltersOpen, setIsFiltersOpen] = useState(false)
   const [filters, setFilters] = useState({
-    status: '' as '' | 'ouvert' | 'en_cours' | 'en_attente' | 'cloture',
+    status: '' as '' | 'ouvert' | 'en_cours' | 'en_attente' | 'resolu' | 'cloture',
     priority: '' as '' | 'low' | 'medium' | 'high' | 'critical',
     userId: '' as number | '',
     departmentId: '' as number | '',
+    filialeId: '' as number | '',
+    softwareId: '' as number | '',
     dateFrom: '',
     dateTo: '',
   })
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false)
+  const [isInfoModalOpenInternes, setIsInfoModalOpenInternes] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [ticketToDelete, setTicketToDelete] = useState<TicketDTO | null>(null)
   const [tickets, setTickets] = useState<TicketDTO[]>([])
@@ -55,7 +72,7 @@ const Tickets = () => {
     title: '',
     description: '',
     category: 'incident' as CreateTicketRequest['category'], // Valeur par défaut, sera mise à jour après chargement des catégories
-    source: 'direct',
+    source: (canSelectSource ? 'direct' : 'kronos') as CreateTicketRequest['source'], // Par défaut "kronos" pour les non-IT fournisseur
     priority: 'medium',
     requester_name: '',
     requester_department: '',
@@ -71,6 +88,18 @@ const Tickets = () => {
   const [loadingDepartments, setLoadingDepartments] = useState(false)
   const [selectedRequesterId, setSelectedRequesterId] = useState<number | ''>('')
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<number | ''>('')
+  const [filiales, setFiliales] = useState<FilialeDTO[]>([])
+  const [loadingFiliales, setLoadingFiliales] = useState(false)
+  // Filtre par filiale pour le dropdown des demandeurs (filiale fournisseur IT)
+  const [requesterFilialeFilter, setRequesterFilialeFilter] = useState<number | ''>('')
+  // Saisie manuelle du demandeur (pour IT filiale fournisseur)
+  const [useManualRequester, setUseManualRequester] = useState(false)
+  const [manualRequesterFirstName, setManualRequesterFirstName] = useState('')
+  const [manualRequesterLastName, setManualRequesterLastName] = useState('')
+  const [softwareList, setSoftwareList] = useState<SoftwareDTO[]>([])
+  const [loadingSoftware, setLoadingSoftware] = useState(false)
+  const [selectedFilialeId, setSelectedFilialeId] = useState<number | ''>('')
+  const [selectedSoftwareId, setSelectedSoftwareId] = useState<number | ''>('')
   
   // États pour la modification
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
@@ -93,6 +122,25 @@ const Tickets = () => {
   const [loadingEditAttachments, setLoadingEditAttachments] = useState(false)
   const [editSelectedRequesterId, setEditSelectedRequesterId] = useState<number | ''>('')
   const [editSelectedDepartmentId, setEditSelectedDepartmentId] = useState<number | ''>('')
+  const [editSelectedFilialeId, setEditSelectedFilialeId] = useState<number | ''>('')
+  const [editSelectedSoftwareId, setEditSelectedSoftwareId] = useState<number | ''>('')
+  // Filtre par filiale pour le dropdown des demandeurs dans le modal d'édition (filiale fournisseur IT)
+  const [editRequesterFilialeFilter, setEditRequesterFilialeFilter] = useState<number | ''>('')
+
+  // Charger le département de l'utilisateur (pour isResolver)
+  const loadUserDepartment = async () => {
+    if (!user?.department_id) {
+      setUserDepartment(null)
+      return
+    }
+    try {
+      const dept = await departmentService.getById(user.department_id)
+      setUserDepartment(dept)
+    } catch (err) {
+      console.error('Erreur lors du chargement du département:', err)
+      setUserDepartment(null)
+    }
+  }
 
   // Charger les catégories
   const loadCategories = async () => {
@@ -118,11 +166,14 @@ const Tickets = () => {
     }
   }
 
-  // Charger les utilisateurs
+  // Charger les utilisateurs pour la création de tickets
+  // Utilise l'endpoint spécifique qui filtre selon les permissions :
+  // - Si l'utilisateur a tickets.create_any_filiale : tous les utilisateurs actifs
+  // - Sinon : uniquement les utilisateurs actifs de sa propre filiale
   const loadUsers = async () => {
     setLoadingUsers(true)
     try {
-      const data = await userService.getAll()
+      const data = await userService.getForTicketCreation()
       const safeData = Array.isArray(data) ? data : []
       setUsers(safeData.filter(user => user.is_active))
     } catch (err) {
@@ -133,11 +184,18 @@ const Tickets = () => {
     }
   }
 
-  // Charger les départements
-  const loadDepartments = async () => {
+  // Charger les départements (optionnellement filtrés par filiale)
+  const loadDepartments = async (filialeId?: number) => {
     setLoadingDepartments(true)
     try {
-      const data = await departmentService.getAll(true) // Seulement les départements actifs
+      let data: DepartmentDTO[]
+      if (filialeId) {
+        // Charger les départements de la filiale spécifiée
+        data = await departmentService.getByFilialeId(filialeId)
+      } else {
+        // Charger tous les départements actifs
+        data = await departmentService.getAll(true)
+      }
       const safeData = Array.isArray(data) ? data : []
       setDepartments(safeData)
     } catch (err) {
@@ -148,11 +206,67 @@ const Tickets = () => {
     }
   }
 
+  // Charger les filiales
+  const loadFiliales = async () => {
+    setLoadingFiliales(true)
+    try {
+      const data = await filialeService.getActive() // Seulement les filiales actives
+      const safeData = Array.isArray(data) ? data : []
+      setFiliales(safeData)
+      // Si l'utilisateur connecté a une filiale assignée, la pré-sélectionner
+      if (user?.filiale_id && safeData.find(f => f.id === user.filiale_id)) {
+        setSelectedFilialeId(user.filiale_id)
+      }
+    } catch (err) {
+      console.error('Erreur lors du chargement des filiales:', err)
+      toast.error('Erreur lors du chargement des filiales')
+    } finally {
+      setLoadingFiliales(false)
+    }
+  }
+
+  // Charger les logiciels déployés dans une filiale spécifique
+  const loadSoftware = async (filialeId?: number | '') => {
+    setLoadingSoftware(true)
+    try {
+      // Si une filiale est spécifiée, charger uniquement les logiciels déployés dans cette filiale
+      if (filialeId) {
+        const deployments = await softwareService.getDeploymentsByFiliale(filialeId as number)
+        const safeDeployments = Array.isArray(deployments) ? deployments : []
+        // Extraire les logiciels des déploiements actifs
+        const softwareFromDeployments = safeDeployments
+          .filter(dep => dep.is_active && dep.software)
+          .map(dep => dep.software!)
+        setSoftwareList(softwareFromDeployments)
+      } else {
+        // Si aucune filiale n'est spécifiée, utiliser la filiale de l'utilisateur connecté
+        if (user?.filiale_id) {
+          const deployments = await softwareService.getDeploymentsByFiliale(user.filiale_id)
+          const safeDeployments = Array.isArray(deployments) ? deployments : []
+          const softwareFromDeployments = safeDeployments
+            .filter(dep => dep.is_active && dep.software)
+            .map(dep => dep.software!)
+          setSoftwareList(softwareFromDeployments)
+        } else {
+          // Si l'utilisateur n'a pas de filiale, ne charger aucun logiciel
+          setSoftwareList([])
+        }
+      }
+    } catch (err) {
+      console.error('Erreur lors du chargement des logiciels:', err)
+      const errorMessage = err instanceof Error ? err.message : 'Erreur lors du chargement des logiciels'
+      toast.error(errorMessage)
+      setSoftwareList([])
+    } finally {
+      setLoadingSoftware(false)
+    }
+  }
+
   // Charger les tickets selon les permissions
   const loadTickets = async () => {
     // Vérifier les permissions avant de charger les données
     // tickets.create permet aussi de voir ses propres tickets créés
-    if (!hasPermission('tickets.view_all') && !hasPermission('tickets.view_team') && !hasPermission('tickets.view_own') && !hasPermission('tickets.create')) {
+    if (!hasPermission('tickets.view_all') && !hasPermission('tickets.view_filiale') && !hasPermission('tickets.view_team') && !hasPermission('tickets.view_own') && !hasPermission('tickets.create')) {
       setError('Vous n\'avez pas la permission de voir les tickets')
       setLoading(false)
       return
@@ -163,20 +277,17 @@ const Tickets = () => {
       let response
       
       // Charger selon les permissions
+      // view_all, view_team, view_own : utiliser getAll() pour que le scope backend (filiale + permissions) soit appliqué
+      // create seul (sans view_*) : utiliser getMyTickets() pour voir les tickets qu'on a créés
       if (hasPermission('tickets.view_all')) {
-        // DSI : voir tous les tickets
         response = await ticketService.getAll(currentPage, itemsPerPage)
       } else if (hasPermission('tickets.view_team') && user?.department_id) {
-        // Chef de service : voir les tickets de son département (filtrage côté backend)
         response = await ticketService.getByDepartment(user.department_id, currentPage, itemsPerPage)
       } else if (hasPermission('tickets.view_own') && user?.id) {
-        // Technicien / Employé : voir seulement ses propres tickets
-        response = await ticketService.getMyTickets(currentPage, itemsPerPage)
+        response = await ticketService.getAll(currentPage, itemsPerPage)
       } else if (hasPermission('tickets.create') && user?.id) {
-        // Si seulement tickets.create : voir les tickets qu'on a créés (filtrage côté backend)
         response = await ticketService.getMyTickets(currentPage, itemsPerPage)
       } else {
-        // Par défaut, charger ses propres tickets
         response = await ticketService.getMyTickets(currentPage, itemsPerPage)
       }
       
@@ -209,10 +320,77 @@ const Tickets = () => {
   useEffect(() => {
     if (didInit.current) return
     didInit.current = true
+    loadUserDepartment()
     loadCategories()
     loadUsers()
-    loadDepartments()
-  }, [])
+    loadFiliales()
+    // Charger les départements selon les permissions
+    if (canCreateLikeAdmin) {
+      // Pour admin ou résolveur (IT fournisseur) : charger tous les départements
+      loadDepartments()
+    } else if (user?.filiale_id) {
+      // Pour les autres filiales : charger uniquement les départements de leur filiale
+      loadDepartments(user.filiale_id)
+    }
+    // Charger les logiciels pour la filiale de l'utilisateur par défaut
+    if (user?.filiale_id) {
+      loadSoftware(user.filiale_id)
+    }
+  }, [user?.filiale_id])
+  
+  // Initialiser les données pour les utilisateurs sans permission de créer pour n'importe quelle filiale
+  useEffect(() => {
+    if (isModalOpen && !canCreateLikeAdmin && user?.filiale_id) {
+      // Pour les autres filiales : charger les départements et logiciels de leur filiale
+      loadDepartments(user.filiale_id)
+      loadSoftware(user.filiale_id)
+      // Forcer la source à "kronos" pour les non-IT fournisseur
+      setFormData(prev => ({
+        ...prev,
+        source: 'kronos' as CreateTicketRequest['source'],
+      }))
+    }
+  }, [isModalOpen, user?.filiale_id])
+
+  // Quand l'utilisateur est résolveur (userDepartment chargé), charger tous les départements et utilisateurs pour le formulaire
+  useEffect(() => {
+    if (canCreateLikeAdmin && user?.filiale_id) {
+      loadDepartments()
+      loadUsers()
+    }
+  }, [canCreateLikeAdmin, user?.filiale_id])
+
+  // Recharger les logiciels quand la filiale change (via filtre demandeur ou utilisateur sélectionné)
+  useEffect(() => {
+    if (isModalOpen) {
+      let filialeToUse: number | undefined
+
+      if (canCreateLikeAdmin) {
+        // Pour admin ou résolveur : utiliser la filiale du demandeur sélectionné ou celle du filtre
+        if (selectedRequesterId) {
+          const selectedUser = users.find(u => u.id === selectedRequesterId)
+          filialeToUse = selectedUser?.filiale_id
+        }
+        if (!filialeToUse && requesterFilialeFilter) {
+          filialeToUse = requesterFilialeFilter
+        }
+      } else {
+        // Pour les autres filiales : toujours utiliser leur propre filiale
+        if (user?.filiale_id) {
+          filialeToUse = user.filiale_id
+        }
+      }
+      
+      // Fallback : utiliser la filiale de l'utilisateur
+      if (!filialeToUse && user?.filiale_id) {
+        filialeToUse = user.filiale_id
+      }
+      
+      if (filialeToUse) {
+        loadSoftware(filialeToUse)
+      }
+    }
+  }, [selectedRequesterId, requesterFilialeFilter, isModalOpen, user?.filiale_id, users])
 
   const lastTicketLoadKey = useRef<string | null>(null)
 
@@ -228,6 +406,7 @@ const Tickets = () => {
     if (isFiltersOpen) {
       loadUsers()
       loadDepartments()
+      loadFiliales()
     }
   }, [isFiltersOpen])
 
@@ -258,6 +437,12 @@ const Tickets = () => {
       if (selectedDept && ticket.requester_department !== selectedDept.name) return false
     }
     
+    // Filtre par filiale
+    if (filters.filialeId && ticket.filiale_id !== filters.filialeId) return false
+    
+    // Filtre par logiciel
+    if (filters.softwareId && ticket.software_id !== filters.softwareId) return false
+    
     // Filtre par date
     if (filters.dateFrom || filters.dateTo) {
       const ticketDate = ticket.created_at ? new Date(ticket.created_at) : null
@@ -286,6 +471,8 @@ const Tickets = () => {
     filters.priority,
     filters.userId,
     filters.departmentId,
+    filters.filialeId,
+    filters.softwareId,
     filters.dateFrom,
     filters.dateTo,
   ].filter(f => f !== '' && f !== null && f !== undefined).length
@@ -308,6 +495,7 @@ const Tickets = () => {
       'ouvert': 'Ouvert',
       'en_cours': 'En cours',
       'en_attente': 'En attente',
+      'resolu': 'Résolu',
       'cloture': 'Clôturé',
     }
     return statusMap[status] || status
@@ -318,6 +506,7 @@ const Tickets = () => {
       'ouvert': 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300',
       'en_cours': 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300',
       'en_attente': 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300',
+      'resolu': 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300',
       'cloture': 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300',
     }
     return styles[status] || 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
@@ -406,12 +595,28 @@ const Tickets = () => {
     
     setEditSelectedRequesterId(requesterUser?.id || '')
     setEditSelectedDepartmentId(requesterDept?.id || '')
+    setEditSelectedFilialeId(ticket.filiale_id || '')
+    setEditSelectedSoftwareId(ticket.software_id || '')
+    // Initialiser le filtre de filiale pour les demandeurs avec la filiale du ticket
+    if (ticket.filiale_id && canCreateLikeAdmin) {
+      setEditRequesterFilialeFilter(ticket.filiale_id)
+      // Charger les départements de cette filiale
+      loadDepartments(ticket.filiale_id)
+    } else {
+      setEditRequesterFilialeFilter('')
+      // Charger tous les départements ou ceux de la filiale de l'utilisateur
+      if (user?.filiale_id) {
+        loadDepartments(user.filiale_id)
+      } else {
+        loadDepartments()
+      }
+    }
     
     setEditFormData({
       title: ticket.title || '',
       description: ticket.description || '',
       category: ticket.category || '',
-      status: (ticket.status as 'ouvert' | 'en_cours' | 'en_attente' | 'cloture') || 'ouvert',
+      status: (ticket.status as 'ouvert' | 'en_cours' | 'en_attente' | 'resolu' | 'cloture') || 'ouvert',
       priority: (ticket.priority as 'low' | 'medium' | 'high' | 'critical') || 'low',
       requester_name: ticket.requester_name || '',
       requester_department: ticket.requester_department || '',
@@ -427,6 +632,12 @@ const Tickets = () => {
     }
     if (departments.length === 0) {
       loadDepartments()
+    }
+    if (filiales.length === 0) {
+      loadFiliales()
+    }
+    if (softwareList.length === 0) {
+      loadSoftware()
     }
 
     // Charger les attachments
@@ -506,11 +717,17 @@ const Tickets = () => {
       if (editFormData.category && editFormData.category !== ticketToEdit.category) {
         updateData.category = editFormData.category
       }
-      if (editFormData.status && editFormData.status !== ticketToEdit.status) {
-        updateData.status = editFormData.status
-      }
+      // Le statut n'est pas modifiable depuis le modal (transitions automatiques uniquement)
       if (priorityValue && priorityValue !== ticketToEdit.priority) {
         updateData.priority = priorityValue
+      }
+      
+      // Gérer software_id
+      if (editSelectedSoftwareId && editSelectedSoftwareId !== ticketToEdit.software_id) {
+        updateData.software_id = editSelectedSoftwareId
+      } else if (!editSelectedSoftwareId && ticketToEdit.software_id) {
+        // Si on retire le logiciel
+        updateData.software_id = undefined
       }
       
       // Si un utilisateur est sélectionné, utiliser son ID et mettre à jour le nom
@@ -559,6 +776,8 @@ const Tickets = () => {
       setNewImages([])
       setImagesToDelete([])
       setEditImageUrls({})
+      setEditSelectedFilialeId('')
+      setEditSelectedSoftwareId('')
       if (hasAttachmentChanges) {
         await loadTickets()
       }
@@ -591,10 +810,33 @@ const Tickets = () => {
     }
   }
 
-  // Vérifier les permissions avant d'afficher la page
-  // tickets.create permet aussi de voir ses propres tickets créés
-  if (!hasPermission('tickets.view_all') && !hasPermission('tickets.view_team') && !hasPermission('tickets.view_own') && !hasPermission('tickets.create')) {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const canViewTickets =
+    hasPermission('tickets.view_all') ||
+    hasPermission('tickets.view_filiale') ||
+    hasPermission('tickets.view_team') ||
+    hasPermission('tickets.view_own') ||
+    hasPermission('tickets.create')
+  const canViewInternes =
+    hasPermission('tickets_internes.view_own') ||
+    hasPermission('tickets_internes.view_department') ||
+    hasPermission('tickets_internes.view_filiale') ||
+    hasPermission('tickets_internes.view_all')
+
+  if (!canViewTickets && !canViewInternes) {
     return <AccessDenied message="Vous n'avez pas la permission de voir les tickets" />
+  }
+
+  const activeTab =
+    tabParam === 'internes' && canViewInternes
+      ? 'internes'
+      : canViewTickets
+        ? 'tickets'
+        : 'internes'
+
+  const setTicketsTab = (tab: 'tickets' | 'internes') => {
+    setSearchParams(tab === 'internes' ? { tab: 'internes' } : {}, { replace: true })
   }
 
   return (
@@ -602,23 +844,60 @@ const Tickets = () => {
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Tickets</h1>
-          <div className="flex items-center gap-2 mt-1">
-            <p className="text-gray-600 dark:text-gray-400">Gérez tous les tickets et incidents</p>
-            <button
-              onClick={() => setIsInfoModalOpen(!isInfoModalOpen)}
-              className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors flex items-center justify-center flex-shrink-0"
-              title="Qu'est-ce qu'un ticket ?"
-            >
-              <AlertCircle className="w-3.5 h-3.5" />
-            </button>
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {/* Onglets */}
+            <nav className="flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1" aria-label="Onglets">
+              {canViewTickets && (
+                <button
+                  type="button"
+                  onClick={() => setTicketsTab('tickets')}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    activeTab === 'tickets'
+                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                  }`}
+                >
+                  Tickets
+                </button>
+              )}
+              {canViewInternes && (
+                <button
+                  type="button"
+                  onClick={() => setTicketsTab('internes')}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    activeTab === 'internes'
+                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                  }`}
+                >
+                  Tickets internes
+                </button>
+              )}
+            </nav>
           </div>
         </div>
-        {hasPermission('tickets.create') && (
+        {activeTab === 'tickets' && hasPermission('tickets.create') && (
           <button
             onClick={() => {
               setIsModalOpen(true)
               // Recharger les catégories à l'ouverture du modal pour avoir les dernières données
               loadCategories()
+              loadUserDepartment()
+              // Charger les départements et logiciels selon les permissions
+              if (canCreateLikeAdmin) {
+                // Pour admin ou résolveur : charger tous les départements par défaut
+                loadDepartments()
+                // Charger les logiciels pour la filiale de l'utilisateur par défaut
+                if (user?.filiale_id) {
+                  loadSoftware(user.filiale_id)
+                }
+              } else {
+                // Pour les autres : charger les départements de leur filiale
+                if (user?.filiale_id) {
+                  loadDepartments(user.filiale_id)
+                  loadSoftware(user.filiale_id)
+                }
+              }
             }}
             className="btn btn-primary flex items-center flex-shrink-0"
           >
@@ -628,6 +907,53 @@ const Tickets = () => {
         )}
       </div>
 
+      {activeTab === 'tickets' && (
+        <div className="flex items-center gap-2">
+          <p className="text-gray-600 dark:text-gray-400">Gérez tous les tickets et incidents</p>
+          <button
+            onClick={() => setIsInfoModalOpen(!isInfoModalOpen)}
+            className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors flex items-center justify-center flex-shrink-0"
+            title="Qu'est-ce qu'un ticket ?"
+          >
+            <AlertCircle className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {activeTab === 'internes' && (
+        <div className="flex items-center gap-2">
+          <p className="text-gray-600 dark:text-gray-400">Création et suivi des tickets internes (départements non-IT)</p>
+          <button
+            onClick={() => setIsInfoModalOpenInternes(!isInfoModalOpenInternes)}
+            className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors flex items-center justify-center flex-shrink-0"
+            title="Qu'est-ce qu'un ticket interne ?"
+          >
+            <AlertCircle className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {activeTab === 'internes' && isInfoModalOpenInternes && (
+        <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+          <div className="flex items-start space-x-3">
+            <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 text-sm text-blue-800 dark:text-blue-200">
+              <p className="font-medium mb-2">Qu'est-ce qu'un ticket interne ?</p>
+              <p className="whitespace-pre-line">
+                Les tickets internes permettent aux départements non-IT de gérer leurs propres demandes et tâches (tâche interne, demande interne, suivi projet).
+                {'\n\n'}• Ils sont créés et assignés au sein du même département (sauf pour l'admin système qui peut assigner à tout le monde).
+                {'\n'}• L'assigné ou son chef peut saisir le temps estimé et le temps passé sur la page de détails du ticket.
+                {'\n'}• Les tickets assignés apparaissent dans « Mon panier » et l'assigné reçoit une notification.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'internes' && <TicketInternesTab />}
+
+      {activeTab === 'tickets' && (
+        <>
       {/* Note d'explication en dessous du header pour ne pas déranger le bouton */}
       {isInfoModalOpen && (
         <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
@@ -694,6 +1020,7 @@ const Tickets = () => {
                     <option value="ouvert">Ouvert</option>
                     <option value="en_cours">En cours</option>
                     <option value="en_attente">En attente</option>
+                    <option value="resolu">Résolu</option>
                     <option value="cloture">Clôturé</option>
                   </select>
                 </div>
@@ -762,6 +1089,56 @@ const Tickets = () => {
                       {departments.map((dept) => (
                         <option key={dept.id} value={dept.id}>
                           {dept.name} {dept.code ? `(${dept.code})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Filtre par filiale */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Filiale
+                  </label>
+                  {loadingFiliales ? (
+                    <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                      Chargement...
+                    </div>
+                  ) : (
+                    <select
+                      value={filters.filialeId}
+                      onChange={(e) => setFilters({ ...filters, filialeId: e.target.value ? parseInt(e.target.value) : '' })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
+                    >
+                      <option value="">Toutes les filiales</option>
+                      {(filiales || []).map((filiale) => (
+                        <option key={filiale.id} value={filiale.id}>
+                          {filiale.name} {filiale.code ? `(${filiale.code})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Filtre par logiciel */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Logiciel
+                  </label>
+                  {loadingSoftware ? (
+                    <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                      Chargement...
+                    </div>
+                  ) : (
+                    <select
+                      value={filters.softwareId}
+                      onChange={(e) => setFilters({ ...filters, softwareId: e.target.value ? parseInt(e.target.value) : '' })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
+                    >
+                      <option value="">Tous les logiciels</option>
+                      {(softwareList || []).map((software) => (
+                        <option key={software.id} value={software.id}>
+                          {software.name}{software.version ? ` - v${software.version}` : ''}
                         </option>
                       ))}
                     </select>
@@ -866,6 +1243,12 @@ const Tickets = () => {
                       Demandeur / Département
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Filiale
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Logiciel
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Dernière mise à jour
                     </th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -895,7 +1278,14 @@ const Tickets = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900 dark:text-gray-100">
                           {ticket.assigned_to 
-                            ? `${ticket.assigned_to.first_name || ''} ${ticket.assigned_to.last_name || ''}`.trim() || ticket.assigned_to.username
+                            ? (
+                              <>
+                                <span>{`${ticket.assigned_to.first_name || ''} ${ticket.assigned_to.last_name || ''}`.trim() || ticket.assigned_to.username}</span>
+                                {ticket.assigned_to.email && (
+                                  <div className="text-xs text-gray-500 dark:text-gray-400">{ticket.assigned_to.email}</div>
+                                )}
+                              </>
+                            )
                             : 'Non assigné'}
                         </div>
                       </td>
@@ -904,6 +1294,30 @@ const Tickets = () => {
                         {ticket.requester_department && (
                           <div className="text-xs text-gray-500 dark:text-gray-400">{ticket.requester_department}</div>
                         )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900 dark:text-gray-100">
+                          {ticket.filiale ? (
+                            <span>
+                              {ticket.filiale.name}
+                              {ticket.filiale.code && ` (${ticket.filiale.code})`}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 dark:text-gray-500">-</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900 dark:text-gray-100">
+                          {ticket.software ? (
+                            <span>
+                              {ticket.software.name}
+                              {ticket.software.version ? ` - v${ticket.software.version}` : ''}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 dark:text-gray-500">-</span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                         {formatDate(ticket.updated_at)}
@@ -968,11 +1382,13 @@ const Tickets = () => {
           const defaultCategory = categories.length > 0 
             ? categories[0].slug as CreateTicketRequest['category']
             : 'incident' as CreateTicketRequest['category']
+          // Définir la source par défaut selon les permissions
+          const defaultSource = canCreateLikeAdmin ? 'direct' : 'kronos'
           setFormData({
             title: '',
             description: '',
             category: defaultCategory,
-            source: 'direct',
+            source: defaultSource as CreateTicketRequest['source'],
             priority: 'medium',
             requester_name: '',
             requester_department: '',
@@ -980,6 +1396,18 @@ const Tickets = () => {
           setPhotos([])
           setSelectedRequesterId('')
           setSelectedDepartmentId('')
+          setRequesterFilialeFilter('')
+          setUseManualRequester(false)
+          setManualRequesterFirstName('')
+          setManualRequesterLastName('')
+          setSelectedFilialeId('')
+          setSelectedSoftwareId('')
+          // Recharger les départements selon les permissions
+          if (canCreateLikeAdmin) {
+            loadDepartments() // Charger tous les départements
+          } else if (user?.filiale_id) {
+            loadDepartments(user.filiale_id) // Charger les départements de la filiale de l'utilisateur
+          }
         }}
         title="Nouveau ticket"
         size="lg"
@@ -998,28 +1426,65 @@ const Tickets = () => {
                 toast.error('La description est obligatoire')
                 return
               }
-              if (!selectedRequesterId) {
-                toast.error('Veuillez sélectionner un demandeur')
-                setIsSubmitting(false)
-                return
-              }
-              if (!selectedDepartmentId) {
-                toast.error('Veuillez sélectionner un département')
-                setIsSubmitting(false)
-                return
+              // Récupérer les informations du demandeur selon le mode sélectionné
+              let selectedUser: UserDTO | undefined
+              let requesterName = ''
+              
+              if (useManualRequester && canCreateLikeAdmin) {
+                // Mode manuel pour IT filiale fournisseur : utiliser les champs saisis (optionnels)
+                const first = manualRequesterFirstName.trim()
+                const last = manualRequesterLastName.trim()
+                requesterName = [first, last].filter(Boolean).join(' ')
+              } else {
+                // Mode normal : un utilisateur doit être sélectionné
+                if (!selectedRequesterId) {
+                  toast.error('Veuillez sélectionner un demandeur')
+                  setIsSubmitting(false)
+                  return
+                }
+                selectedUser = users.find(u => u.id === selectedRequesterId)
+                if (!selectedUser) {
+                  toast.error('Erreur lors de la récupération des informations')
+                  setIsSubmitting(false)
+                  return
+                }
+                // Construire un nom lisible pour le demandeur
+                if (selectedUser.first_name || selectedUser.last_name) {
+                  requesterName = `${selectedUser.first_name || ''} ${selectedUser.last_name || ''}`.trim() || selectedUser.username
+                } else {
+                  requesterName = selectedUser.username
+                }
               }
               
-              // Récupérer les informations de l'utilisateur et du département sélectionnés
-              const selectedUser = users.find(u => u.id === selectedRequesterId)
-              const selectedDept = departments.find(d => d.id === selectedDepartmentId)
-              
-              if (!selectedUser || !selectedDept) {
-                toast.error('Erreur lors de la récupération des informations')
-                setIsSubmitting(false)
-                return
+              // Validation du département selon les permissions
+              let requesterDept = ''
+              if (!canCreateLikeAdmin) {
+                // Pour les autres filiales, le département est obligatoire
+                if (!selectedDepartmentId) {
+                  toast.error('Veuillez sélectionner un département')
+                  setIsSubmitting(false)
+                  return
+                }
+                const selectedDept = departments.find(d => d.id === selectedDepartmentId)
+                if (!selectedDept) {
+                  toast.error('Erreur lors de la récupération du département')
+                  setIsSubmitting(false)
+                  return
+                }
+                requesterDept = selectedDept.name
+              } else {
+                // Pour la filiale fournisseur IT, le département est optionnel
+                if (selectedDepartmentId) {
+                  const selectedDept = departments.find(d => d.id === selectedDepartmentId)
+                  if (selectedDept) {
+                    requesterDept = selectedDept.name
+                  }
+                }
+                // Si aucun département sélectionné, utiliser celui de l'utilisateur sélectionné si disponible
+                if (!requesterDept && selectedUser?.department) {
+                  requesterDept = selectedUser.department.name || selectedUser.department.code || ''
+                }
               }
-              
-              const requesterDept = selectedDept.name
               
               // Convertir le temps estimé en minutes avant l'envoi
               const dataToSend: any = {
@@ -1027,8 +1492,37 @@ const Tickets = () => {
                 description: formData.description.trim(),
                 category: formData.category,
                 source: formData.source,
-                requester_id: selectedUser.id,
-                requester_department: requesterDept,
+                requester_id: selectedUser?.id,
+                requester_name: requesterName || undefined,
+                requester_department: requesterDept || undefined, // Ne pas envoyer si vide
+              }
+              
+              // Déterminer la filiale du ticket
+              if (canCreateLikeAdmin) {
+                // Pour la filiale fournisseur IT : utiliser la filiale du demandeur sélectionné ou celle du filtre
+                if (selectedRequesterId) {
+                  const selectedUser = users.find(u => u.id === selectedRequesterId)
+                  if (selectedUser?.filiale_id) {
+                    dataToSend.filiale_id = selectedUser.filiale_id
+                  } else if (requesterFilialeFilter) {
+                    dataToSend.filiale_id = requesterFilialeFilter
+                  }
+                } else if (requesterFilialeFilter) {
+                  dataToSend.filiale_id = requesterFilialeFilter
+                } else if (user?.filiale_id) {
+                  // Fallback : utiliser la filiale de l'utilisateur
+                  dataToSend.filiale_id = user.filiale_id
+                }
+              } else {
+                // Si l'utilisateur ne peut créer que pour sa propre filiale, forcer sa filiale
+                if (user?.filiale_id) {
+                  dataToSend.filiale_id = user.filiale_id
+                }
+              }
+              
+              // Ajouter software_id si sélectionné
+              if (selectedSoftwareId) {
+                dataToSend.software_id = selectedSoftwareId
               }
               
               // Ajouter priority seulement s'il est défini
@@ -1088,8 +1582,11 @@ const Tickets = () => {
               setPhotos([])
               setEstimatedTimeValue('')
               setEstimatedTimeUnit('hours')
-          setEstimatedTimeValue('')
-          setEstimatedTimeUnit('hours')
+              // Réinitialiser la filiale seulement si l'utilisateur peut sélectionner n'importe quelle filiale
+              if (canCreateLikeAdmin) {
+                setSelectedFilialeId('')
+              }
+              setSelectedSoftwareId('')
               await loadTickets() // Rafraîchir la liste des tickets
               toast.success('Ticket créé avec succès' + (photos.length > 0 ? ` et ${photos.length} image(s) ajoutée(s)` : ''))
             } catch (error) {
@@ -1108,15 +1605,108 @@ const Tickets = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Demandeur <span className="text-red-500">*</span>
+                  Demandeur {!useManualRequester && <span className="text-red-500">*</span>}
                 </label>
-                {loadingUsers ? (
+                {/* Filtre par filiale pour le département IT (filiale fournisseur) */}
+                {canCreateLikeAdmin && (
+                  <>
+                    <div className="mb-2 flex items-center gap-2">
+                      <input
+                        id="useManualRequester"
+                        type="checkbox"
+                        checked={useManualRequester}
+                        onChange={(e) => {
+                          const checked = e.target.checked
+                          setUseManualRequester(checked)
+                          // Réinitialiser les champs liés quand on bascule de mode
+                          setSelectedRequesterId('')
+                          if (checked) {
+                            // En mode manuel, on ne dépend plus du filtre filiale pour les utilisateurs
+                            setRequesterFilialeFilter('')
+                          }
+                        }}
+                        className="h-4 w-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                      />
+                      <label htmlFor="useManualRequester" className="text-xs text-gray-700 dark:text-gray-300">
+                        Saisir manuellement le demandeur (nom / prénom)
+                      </label>
+                    </div>
+                    {!useManualRequester && (
+                      <div className="mb-3 p-2.5 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Building2 className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                          <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                            Filtrer par filiale
+                          </label>
+                          {requesterFilialeFilter && (
+                            <span className="ml-auto px-2 py-0.5 text-xs bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded-full">
+                              Filtré
+                            </span>
+                          )}
+                        </div>
+                        <select
+                          value={requesterFilialeFilter}
+                          onChange={(e) => {
+                            const filialeId = e.target.value ? parseInt(e.target.value) : ''
+                            setRequesterFilialeFilter(filialeId)
+                            // Réinitialiser la sélection du demandeur quand on change de filiale
+                            setSelectedRequesterId('')
+                            setSelectedDepartmentId('')
+                            // Recharger les départements de la nouvelle filiale
+                            if (filialeId) {
+                              loadDepartments(filialeId)
+                            } else {
+                              loadDepartments() // Charger tous les départements si aucune filiale sélectionnée
+                            }
+                          }}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent transition-colors"
+                        >
+                          <option value="">Toutes les filiales</option>
+                          {(filiales || []).map((filiale) => (
+                            <option key={filiale.id} value={filiale.id}>
+                              {filiale.name} {filiale.code ? `(${filiale.code})` : ''}
+                              {}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </>
+                )}
+                {useManualRequester && canCreateLikeAdmin ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        Prénom du demandeur (optionnel)
+                      </label>
+                      <input
+                        type="text"
+                        value={manualRequesterFirstName}
+                        onChange={(e) => setManualRequesterFirstName(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
+                        placeholder="Prénom"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        Nom du demandeur (optionnel)
+                      </label>
+                      <input
+                        type="text"
+                        value={manualRequesterLastName}
+                        onChange={(e) => setManualRequesterLastName(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
+                        placeholder="Nom"
+                      />
+                    </div>
+                  </div>
+                ) : loadingUsers ? (
                   <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
                     Chargement des utilisateurs...
                   </div>
                 ) : (
                   <select
-                    required
+                    required={!useManualRequester}
                     value={selectedRequesterId}
                     onChange={(e) => {
                       setSelectedRequesterId(e.target.value ? parseInt(e.target.value) : '')
@@ -1131,40 +1721,93 @@ const Tickets = () => {
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
                   >
                     <option value="">Sélectionner un utilisateur</option>
-                    {users.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.first_name && user.last_name
-                          ? `${user.first_name} ${user.last_name} (${user.username})`
-                          : user.username}
-                        {user.department && ` - ${user.department.code || user.department.name}`}
-                      </option>
-                    ))}
+                    {(() => {
+                      // Filtrer les utilisateurs selon la filiale sélectionnée (si filtre activé)
+                      const filteredUsers = requesterFilialeFilter
+                        ? users.filter(user => user.filiale_id === requesterFilialeFilter)
+                        : users
+                      
+                      return filteredUsers.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.first_name && user.last_name
+                            ? `${user.first_name} ${user.last_name} (${user.username})`
+                            : user.username}
+                          {user.department && ` - ${user.department.code || user.department.name}`}
+                          {user.filiale && ` [${user.filiale.name}]`}
+                        </option>
+                      ))
+                    })()}
                   </select>
                 )}
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Département <span className="text-red-500">*</span>
-                </label>
-                {loadingDepartments ? (
-                  <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
-                    Chargement des départements...
-                  </div>
-                ) : (
-                  <select
-                    required
-                    value={selectedDepartmentId}
-                    onChange={(e) => setSelectedDepartmentId(e.target.value ? parseInt(e.target.value) : '')}
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
-                  >
-                    <option value="">Sélectionner un département</option>
-                    {(departments || []).map((dept) => (
-                      <option key={dept.id} value={dept.id}>
-                        {dept.name} {dept.code ? `(${dept.code})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                )}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Département {!canCreateLikeAdmin && <span className="text-red-500">*</span>}
+                  </label>
+                  {loadingDepartments ? (
+                    <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                      Chargement des départements...
+                    </div>
+                  ) : (
+                    <select
+                      required={!canCreateLikeAdmin}
+                      value={selectedDepartmentId}
+                      onChange={(e) => setSelectedDepartmentId(e.target.value ? parseInt(e.target.value) : '')}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
+                    >
+                      <option value="">Sélectionner un département</option>
+                      {(() => {
+                        // Filtrer les départements selon les permissions
+                        let filteredDepartments = departments
+                        
+                        if (canCreateLikeAdmin) {
+                          // Pour la filiale fournisseur IT : filtrer selon le filtre de filiale si activé
+                          if (requesterFilialeFilter) {
+                            filteredDepartments = departments.filter(dept => dept.filiale_id === requesterFilialeFilter)
+                          }
+                        } else {
+                          // Pour les autres filiales : filtrer uniquement par leur propre filiale
+                          if (user?.filiale_id) {
+                            filteredDepartments = departments.filter(dept => dept.filiale_id === user.filiale_id)
+                          } else {
+                            filteredDepartments = [] // Pas de filiale = pas de départements
+                          }
+                        }
+                        
+                        return filteredDepartments.map((dept) => (
+                          <option key={dept.id} value={dept.id}>
+                            {dept.name} {dept.code ? `(${dept.code})` : ''}
+                          </option>
+                        ))
+                      })()}
+                    </select>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Logiciel concerné
+                  </label>
+                  {loadingSoftware ? (
+                    <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                      Chargement des logiciels...
+                    </div>
+                  ) : (
+                    <select
+                      value={selectedSoftwareId}
+                      onChange={(e) => setSelectedSoftwareId(e.target.value ? parseInt(e.target.value) : '')}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
+                    >
+                      <option value="">Sélectionner un logiciel (optionnel)</option>
+                      {(softwareList || []).map((software) => (
+                        <option key={software.id} value={software.id}>
+                          {software.name} {software.code ? `(${software.code})` : ''}
+                          {software.version && ` - v${software.version}`}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -1232,11 +1875,6 @@ const Tickets = () => {
                   )}
                 </select>
               )}
-              {!loadingCategories && categories.length > 0 && (
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {categories.length} catégorie{categories.length > 1 ? 's' : ''} disponible{categories.length > 1 ? 's' : ''}
-                </p>
-              )}
               {!loadingCategories && categories.length === 0 && (
                 <p className="mt-1 text-xs text-red-500 dark:text-red-400">
                   Aucune catégorie active trouvée. Veuillez créer une catégorie dans la gestion des catégories.
@@ -1257,12 +1895,16 @@ const Tickets = () => {
                     source: e.target.value as CreateTicketRequest['source'],
                   })
                 }
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
+                disabled={!canSelectSource}
+                className={`w-full h-10 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent ${
+                  !canSelectSource ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed opacity-75' : ''
+                }`}
               >
                 <option value="mail">Mail</option>
                 <option value="appel">Appel téléphonique</option>
                 <option value="whatsapp">WhatsApp</option>
                 <option value="direct">Direct</option>
+                <option value="kronos">Kronos</option>
               </select>
             </div>
           </div>
@@ -1289,94 +1931,146 @@ const Tickets = () => {
               </select>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Temps estimé
-              </label>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={estimatedTimeValue}
-                  onChange={(e) => {
-                    const value = e.target.value
-                    setEstimatedTimeValue(value === '' ? '' : parseFloat(value) || '')
-                  }}
-                  className="w-full sm:flex-1 min-w-0 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
-                  placeholder="Ex: 2.5 (optionnel)"
-                />
-                <select
-                  value={estimatedTimeUnit}
-                  onChange={(e) => setEstimatedTimeUnit(e.target.value as 'minutes' | 'hours' | 'days')}
-                  className="w-full sm:w-32 sm:shrink-0 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
-                >
-                  <option value="minutes">Minutes</option>
-                  <option value="hours">Heures</option>
-                  <option value="days">Jours</option>
-                </select>
-              </div>
-              {estimatedTimeValue !== '' && estimatedTimeValue > 0 && (
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {Math.round(
-                    estimatedTimeUnit === 'minutes'
-                      ? Number(estimatedTimeValue)
-                      : estimatedTimeUnit === 'hours'
-                        ? Number(estimatedTimeValue) * 60
-                        : Number(estimatedTimeValue) * 480
-                  )} minutes
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Upload de photos */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Photos du problème (optionnel)
-            </label>
-            <div className="mt-2">
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={(e) => {
-                  const files = Array.from(e.target.files || [])
-                  setPhotos((prev) => [...prev, ...files])
-                }}
-                className="hidden"
-                id="photo-upload"
-              />
-              <label
-                htmlFor="photo-upload"
-                className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
-              >
-                <ImageIcon className="w-5 h-5 mr-2" />
-                Ajouter des photos
-              </label>
-            </div>
-            {photos.length > 0 && (
-              <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-                {photos.map((photo, index) => (
-                  <div key={index} className="relative group">
-                    <img
-                      src={URL.createObjectURL(photo)}
-                      alt={`Photo ${index + 1}`}
-                      className="w-full h-32 object-cover rounded-lg border border-gray-300 dark:border-gray-600"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setPhotos(photos.filter((_, i) => i !== index))}
-                      className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 truncate">{photo.name}</p>
+            {/* Pour les non-IT fournisseur : afficher Photos du problème à la place du Temps estimé */}
+            {!canSelectSource ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Photos du problème (optionnel)
+                </label>
+                <div className="mt-2">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || [])
+                      setPhotos((prev) => [...prev, ...files])
+                    }}
+                    className="hidden"
+                    id="photo-upload"
+                  />
+                  <label
+                    htmlFor="photo-upload"
+                    className="cursor-pointer inline-flex items-center justify-center w-full h-10 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                  >
+                    <ImageIcon className="w-5 h-5 mr-2" />
+                    Ajouter des photos
+                  </label>
+                </div>
+                {photos.length > 0 && (
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    {photos.map((photo, index) => (
+                      <div key={index} className="relative group">
+                        <img
+                          src={URL.createObjectURL(photo)}
+                          alt={`Photo ${index + 1}`}
+                          className="w-full h-24 object-cover rounded-lg border border-gray-300 dark:border-gray-600"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setPhotos(photos.filter((_, i) => i !== index))}
+                          className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
+              </div>
+            ) : (
+              /* Temps estimé : visible uniquement pour le département IT de la filiale fournisseur */
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Temps estimé
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={estimatedTimeValue}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setEstimatedTimeValue(value === '' ? '' : parseFloat(value) || '')
+                    }}
+                    className="w-full sm:flex-1 min-w-0 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
+                    placeholder="Ex: 2.5 (optionnel)"
+                  />
+                  <select
+                    value={estimatedTimeUnit}
+                    onChange={(e) => setEstimatedTimeUnit(e.target.value as 'minutes' | 'hours' | 'days')}
+                    className="w-full sm:w-32 sm:shrink-0 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
+                  >
+                    <option value="minutes">Minutes</option>
+                    <option value="hours">Heures</option>
+                    <option value="days">Jours</option>
+                  </select>
+                </div>
+                {estimatedTimeValue !== '' && estimatedTimeValue > 0 && (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {Math.round(
+                      estimatedTimeUnit === 'minutes'
+                        ? Number(estimatedTimeValue)
+                        : estimatedTimeUnit === 'hours'
+                          ? Number(estimatedTimeValue) * 60
+                          : Number(estimatedTimeValue) * 480
+                    )} minutes
+                  </p>
+                )}
               </div>
             )}
           </div>
+
+          {/* Upload de photos : affiché en bas uniquement pour le département IT de la filiale fournisseur */}
+          {canSelectSource && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Photos du problème (optionnel)
+              </label>
+              <div className="mt-2">
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || [])
+                    setPhotos((prev) => [...prev, ...files])
+                  }}
+                  className="hidden"
+                  id="photo-upload-it"
+                />
+                <label
+                  htmlFor="photo-upload-it"
+                  className="cursor-pointer inline-flex items-center justify-center w-full h-10 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                >
+                  <ImageIcon className="w-5 h-5 mr-2" />
+                  Ajouter des photos
+                </label>
+              </div>
+              {photos.length > 0 && (
+                <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {photos.map((photo, index) => (
+                    <div key={index} className="relative group">
+                      <img
+                        src={URL.createObjectURL(photo)}
+                        alt={`Photo ${index + 1}`}
+                        className="w-full h-32 object-cover rounded-lg border border-gray-300 dark:border-gray-600"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setPhotos(photos.filter((_, i) => i !== index))}
+                        className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 truncate">{photo.name}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex justify-end space-x-3 pt-4">
             <button
@@ -1408,6 +2102,7 @@ const Tickets = () => {
           setEditImageUrls({})
           setEditSelectedRequesterId('')
           setEditSelectedDepartmentId('')
+          setEditRequesterFilialeFilter('')
         }}
         title="Modifier le ticket"
         size="lg"
@@ -1471,22 +2166,6 @@ const Tickets = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Statut
-              </label>
-              <select
-                value={editFormData.status}
-                onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value as 'ouvert' | 'en_cours' | 'en_attente' | 'cloture' })}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
-              >
-                <option value="ouvert">Ouvert</option>
-                <option value="en_cours">En cours</option>
-                <option value="en_attente">En attente</option>
-                <option value="cloture">Clôturé</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Priorité
               </label>
               <select
@@ -1507,6 +2186,47 @@ const Tickets = () => {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Demandeur
               </label>
+              {/* Filtre par filiale pour le département IT (filiale fournisseur) */}
+              {canCreateLikeAdmin && (
+                <div className="mb-3 p-2.5 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Building2 className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                    <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                      Filtrer par filiale
+                    </label>
+                    {editRequesterFilialeFilter && (
+                      <span className="ml-auto px-2 py-0.5 text-xs bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded-full">
+                        Filtré
+                      </span>
+                    )}
+                  </div>
+                    <select
+                      value={editRequesterFilialeFilter}
+                      onChange={(e) => {
+                        const filialeId = e.target.value ? parseInt(e.target.value) : ''
+                        setEditRequesterFilialeFilter(filialeId)
+                        // Réinitialiser la sélection du demandeur et du département quand on change de filiale
+                        setEditSelectedRequesterId('')
+                        setEditSelectedDepartmentId('')
+                        // Recharger les départements de la nouvelle filiale
+                        if (filialeId) {
+                          loadDepartments(filialeId)
+                        } else {
+                          loadDepartments() // Charger tous les départements si aucune filiale sélectionnée
+                        }
+                      }}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent transition-colors"
+                  >
+                    <option value="">Toutes les filiales</option>
+                    {(filiales || []).map((filiale) => (
+                      <option key={filiale.id} value={filiale.id}>
+                        {filiale.name} {filiale.code ? `(${filiale.code})` : ''}
+                        {}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               {loadingUsers ? (
                 <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
                   Chargement des utilisateurs...
@@ -1527,14 +2247,22 @@ const Tickets = () => {
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
                 >
                   <option value="">Sélectionner un utilisateur</option>
-                  {users.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.first_name && user.last_name
-                        ? `${user.first_name} ${user.last_name} (${user.username})`
-                        : user.username}
-                      {user.department && ` - ${user.department.name}${user.department.code ? ` (${user.department.code})` : ''}`}
-                    </option>
-                  ))}
+                  {(() => {
+                    // Filtrer les utilisateurs selon la filiale sélectionnée (si filtre activé)
+                    const filteredUsers = editRequesterFilialeFilter
+                      ? users.filter(user => user.filiale_id === editRequesterFilialeFilter)
+                      : users
+                    
+                    return filteredUsers.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.first_name && user.last_name
+                          ? `${user.first_name} ${user.last_name} (${user.username})`
+                          : user.username}
+                        {user.department && ` - ${user.department.name}${user.department.code ? ` (${user.department.code})` : ''}`}
+                        {user.filiale && ` [${user.filiale.name}]`}
+                      </option>
+                    ))
+                  })()}
                 </select>
               )}
             </div>
@@ -1548,19 +2276,83 @@ const Tickets = () => {
                   Chargement des départements...
                 </div>
               ) : (
-                <select
-                  value={editSelectedDepartmentId}
-                  onChange={(e) => setEditSelectedDepartmentId(e.target.value ? parseInt(e.target.value) : '')}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
-                >
-                  <option value="">Sélectionner un département</option>
-                  {(departments || []).map((dept) => (
-                    <option key={dept.id} value={dept.id}>
-                      {dept.name} {dept.code ? `(${dept.code})` : ''}
-                    </option>
-                  ))}
-                </select>
+                  <select
+                    value={editSelectedDepartmentId}
+                    onChange={(e) => setEditSelectedDepartmentId(e.target.value ? parseInt(e.target.value) : '')}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
+                  >
+                    <option value="">Sélectionner un département</option>
+                    {(() => {
+                      // Filtrer les départements selon la filiale sélectionnée dans le filtre (si filtre activé)
+                      const filteredDepartments = editRequesterFilialeFilter
+                        ? departments.filter(dept => dept.filiale_id === editRequesterFilialeFilter)
+                        : departments
+                      
+                      return filteredDepartments.map((dept) => (
+                        <option key={dept.id} value={dept.id}>
+                          {dept.name} {dept.code ? `(${dept.code})` : ''}
+                        </option>
+                      ))
+                    })()}
+                  </select>
               )}
+            </div>
+          </div>
+
+          {/* Filiale et Logiciel */}
+          <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Filiale et Logiciel</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Filiale
+                </label>
+                {loadingFiliales ? (
+                  <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                    Chargement...
+                  </div>
+                ) : (
+                  <select
+                    value={editSelectedFilialeId}
+                    onChange={(e) => setEditSelectedFilialeId(e.target.value ? parseInt(e.target.value) : '')}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
+                  >
+                    <option value="">Sélectionner une filiale (optionnel)</option>
+                    {(filiales || []).map((filiale) => (
+                      <option key={filiale.id} value={filiale.id}>
+                        {filiale.name} {filiale.code ? `(${filiale.code})` : ''}
+                        {}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  La filiale ne peut pas être modifiée après création
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Logiciel concerné
+                </label>
+                {loadingSoftware ? (
+                  <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                    Chargement...
+                  </div>
+                ) : (
+                  <select
+                    value={editSelectedSoftwareId}
+                    onChange={(e) => setEditSelectedSoftwareId(e.target.value ? parseInt(e.target.value) : '')}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent"
+                  >
+                    <option value="">Aucun logiciel</option>
+                    {(softwareList || []).map((software) => (
+                      <option key={software.id} value={software.id}>
+                        {software.name}{software.version ? ` - v${software.version}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1729,6 +2521,8 @@ const Tickets = () => {
         cancelText="Annuler"
         confirmButtonClass="bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600"
       />
+        </>
+      )}
     </div>
   )
 }

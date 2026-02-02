@@ -4,6 +4,9 @@
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 const DEBUG_API = import.meta.env.VITE_DEBUG_API === 'true'
 
+// Nom du groupe / organisation (configurable via VITE_APP_GROUP_NAME, ex: Sanlam Allianz)
+export const APP_GROUP_NAME = import.meta.env.VITE_APP_GROUP_NAME || 'le groupe'
+
 // Headers par défaut
 export const getDefaultHeaders = () => {
   const token = sessionStorage.getItem('token')
@@ -72,8 +75,8 @@ export const apiRequest = async <T>(
       errorMessage = response.statusText || `Erreur ${response.status}`
     }
     
-    // Message plus clair pour les erreurs 401
-    if (response.status === 401) {
+    // Pour les 401, ne pas écraser un message spécifique du backend (ex. compte désactivé)
+    if (response.status === 401 && errorMessage === 'Une erreur est survenue') {
       errorMessage = 'Email ou mot de passe incorrect'
     }
     
@@ -85,12 +88,17 @@ export const apiRequest = async <T>(
   if (DEBUG_API) {
     console.log('API Response:', data)
   }
-  
+
+  // Garde contre body null ou invalide
+  if (data == null) {
+    return null as T
+  }
+
   // Si le backend retourne { success: true, data: {...} }, extraire data
   if (data.data !== undefined) {
     return data.data as T
   }
-  
+
   // Sinon, retourner directement l'objet
   return data as T
 }

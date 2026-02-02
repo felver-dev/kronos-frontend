@@ -167,8 +167,10 @@ export interface ProjectTaskDTO {
 }
 
 export const projectService = {
-  getAll: async (): Promise<ProjectDTO[]> => {
-    return apiRequest<ProjectDTO[]>('/projects')
+  /** @param params.scope 'own' = projets de l'utilisateur ; 'department' | 'filiale' | 'global' = périmètre tableau de bord */
+  getAll: async (params?: { scope?: 'own' | 'department' | 'filiale' | 'global' }): Promise<ProjectDTO[]> => {
+    const query = params?.scope ? `?scope=${encodeURIComponent(params.scope)}` : ''
+    return apiRequest<ProjectDTO[]>(`/projects${query}`)
   },
 
   getById: async (id: number): Promise<ProjectDTO> => {

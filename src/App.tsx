@@ -1,42 +1,58 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastProvider } from './contexts/ToastContext'
-import Login from './pages/auth/Login'
-import Register from './pages/auth/Register'
-import ForgotPassword from './pages/auth/ForgotPassword'
 import AppLayout from './layouts/AppLayout'
-import Users from './pages/admin/Users'
-import UserDetails from './pages/admin/UserDetails'
-import Offices from './pages/admin/Offices'
-import Departments from './pages/admin/Departments'
-import AdminTickets from './pages/admin/Tickets'
-import AdminTicketDetails from './pages/admin/TicketDetails'
-import Assets from './pages/admin/Assets'
-import AssetSoftwareSearch from './pages/admin/AssetSoftwareSearch'
-import AssetCategories from './pages/admin/AssetCategories'
-import AssetDetails from './pages/admin/AssetDetails'
-import AdminKnowledge from './pages/admin/Knowledge'
-import AdminKnowledgeDetails from './pages/admin/KnowledgeDetails'
-import KnowledgeCategories from './pages/admin/KnowledgeCategories'
-import AdminTimesheet from './pages/admin/Timesheet'
-import Reports from './pages/admin/Reports'
-import Settings from './pages/admin/Settings'
-import Roles from './pages/admin/Roles'
-import TicketsByCategory from './pages/admin/TicketsByCategory'
-import TicketCategories from './pages/admin/TicketCategories'
-import SLA from './pages/admin/SLA'
-import Audit from './pages/admin/Audit'
-import DelayJustifications from './pages/admin/DelayJustifications'
-import Projects from './pages/admin/Projects'
-import ProjectDetails from './pages/admin/ProjectDetails'
-import UnifiedDashboard from './pages/Dashboard'
-import MonPanier from './pages/MonPanier'
-import Delays from './pages/Delays'
-import Profile from './pages/Profile'
-import NotFound from './pages/NotFound'
 import PermissionRoute from './components/PermissionRoute'
 import AdminRedirect from './components/AdminRedirect'
+
+// Pages critiques (premier écran) — chargées immédiatement
+import Login from './pages/auth/Login'
+import ForgotPassword from './pages/auth/ForgotPassword'
+import NotFound from './pages/NotFound'
+
+// Lazy load du reste pour réduire le bundle initial et le nombre de requêtes
+const UnifiedDashboard = lazy(() => import('./pages/Dashboard'))
+const MonPanier = lazy(() => import('./pages/MonPanier'))
+const Delays = lazy(() => import('./pages/Delays'))
+const Profile = lazy(() => import('./pages/Profile'))
+const Users = lazy(() => import('./pages/admin/Users'))
+const UserDetails = lazy(() => import('./pages/admin/UserDetails'))
+const Offices = lazy(() => import('./pages/admin/Offices'))
+const Departments = lazy(() => import('./pages/admin/Departments'))
+const AdminTickets = lazy(() => import('./pages/admin/Tickets'))
+const TicketList = lazy(() => import('./pages/admin/TicketList').then(m => ({ default: m.TicketList })))
+const AdminTicketDetails = lazy(() => import('./pages/admin/TicketDetails'))
+const TicketInternalDetails = lazy(() => import('./pages/admin/TicketInternalDetails'))
+const Assets = lazy(() => import('./pages/admin/Assets'))
+const AssetSoftwareSearch = lazy(() => import('./pages/admin/AssetSoftwareSearch'))
+const AssetCategories = lazy(() => import('./pages/admin/AssetCategories'))
+const AssetDetails = lazy(() => import('./pages/admin/AssetDetails'))
+const AdminKnowledge = lazy(() => import('./pages/admin/Knowledge'))
+const AdminKnowledgeDetails = lazy(() => import('./pages/admin/KnowledgeDetails'))
+const KnowledgeCategories = lazy(() => import('./pages/admin/KnowledgeCategories'))
+const AdminTimesheet = lazy(() => import('./pages/admin/Timesheet'))
+const Reports = lazy(() => import('./pages/admin/Reports'))
+const Settings = lazy(() => import('./pages/admin/Settings'))
+const Roles = lazy(() => import('./pages/admin/Roles'))
+const RoleDelegations = lazy(() => import('./pages/admin/RoleDelegations'))
+const TicketsByCategory = lazy(() => import('./pages/admin/TicketsByCategory'))
+const TicketCategories = lazy(() => import('./pages/admin/TicketCategories'))
+const SLA = lazy(() => import('./pages/admin/SLA'))
+const Audit = lazy(() => import('./pages/admin/Audit'))
+const DelayJustifications = lazy(() => import('./pages/admin/DelayJustifications'))
+const Projects = lazy(() => import('./pages/admin/Projects'))
+const ProjectDetails = lazy(() => import('./pages/admin/ProjectDetails'))
+const Filiales = lazy(() => import('./pages/admin/Filiales'))
+const Software = lazy(() => import('./pages/admin/Software'))
+const NotificationHistory = lazy(() => import('./pages/admin/NotificationHistory').then(m => ({ default: m.NotificationHistory })))
+
+const PageLoader = () => (
+  <div className="min-h-[40vh] flex items-center justify-center">
+    <div className="animate-spin rounded-full h-10 w-10 border-2 border-primary-600 border-t-transparent" />
+  </div>
+)
 
 function AppRoutes() {
   const { user, loading } = useAuth()
@@ -53,9 +69,9 @@ function AppRoutes() {
   }
 
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       
       {/* Redirections pour compatibilité avec les anciennes routes /admin/* */}
@@ -102,60 +118,92 @@ function AppRoutes() {
         
         {/* Dashboard */}
         <Route path="dashboard" element={
-          <PermissionRoute permissions={['reports.view_global', 'reports.view_team', 'reports.view_own']}>
+          <PermissionRoute permissions={['reports.view_global', 'reports.view_filiale', 'reports.view_team', 'reports.view_own']}>
             <UnifiedDashboard />
           </PermissionRoute>
         } />
 
         {/* Mon panier — tickets assignés, non clôturés + alertes temps estimé */}
         <Route path="panier" element={
-          <PermissionRoute permissions={['tickets.view_all', 'tickets.view_team', 'tickets.view_own', 'tickets.create']}>
+          <PermissionRoute permissions={['tickets.view_all', 'tickets.view_filiale', 'tickets.view_team', 'tickets.view_own', 'tickets.create']}>
             <MonPanier />
           </PermissionRoute>
         } />
         
         {/* Utilisateurs */}
         <Route path="users" element={
-          <PermissionRoute permissions={['users.view_all', 'users.view_team', 'users.view_own']}>
+          <PermissionRoute permissions={['users.view_all', 'users.view_filiale', 'users.view_team', 'users.view_own', 'users.create']}>
             <Users />
           </PermissionRoute>
         } />
         <Route path="users/:id" element={
-          <PermissionRoute permissions={['users.view_all', 'users.view_team', 'users.view_own']}>
+          <PermissionRoute permissions={['users.view_all', 'users.view_filiale', 'users.view_team', 'users.view_own', 'users.create']}>
             <UserDetails />
           </PermissionRoute>
         } />
         
         {/* Rôles */}
         <Route path="roles" element={
-          <PermissionRoute permissions={['roles.view', 'roles.create', 'roles.update', 'roles.delete', 'roles.manage']}>
+          <PermissionRoute permissions={['roles.view', 'roles.view_filiale', 'roles.view_department', 'roles.create', 'roles.update', 'roles.delete', 'roles.manage', 'roles.view_assigned_only']}>
             <Roles />
+          </PermissionRoute>
+        } />
+
+        {/* Délégation de rôles (mini-admin filiale) */}
+        <Route path="role-delegations" element={
+          <PermissionRoute permissions={['roles.delegate_permissions', 'roles.manage']}>
+            <RoleDelegations />
           </PermissionRoute>
         } />
         
         {/* Sièges */}
         <Route path="offices" element={
-          <PermissionRoute permissions={['offices.view', 'offices.create', 'offices.update', 'offices.delete']}>
+          <PermissionRoute permissions={['offices.view', 'offices.view_filiale', 'offices.view_all', 'offices.create', 'offices.update', 'offices.delete']}>
             <Offices />
           </PermissionRoute>
         } />
         
         {/* Départements */}
         <Route path="departments" element={
-          <PermissionRoute permissions={['departments.view', 'departments.create', 'departments.update', 'departments.delete']}>
+          <PermissionRoute permissions={['departments.view', 'departments.view_filiale', 'departments.view_all', 'departments.create', 'departments.update', 'departments.delete']}>
             <Departments />
+          </PermissionRoute>
+        } />
+        
+        {/* Filiales */}
+        <Route path="filiales" element={
+          <PermissionRoute permissions={['filiales.view', 'filiales.create', 'filiales.update', 'filiales.manage']}>
+            <Filiales />
+          </PermissionRoute>
+        } />
+        
+        {/* Logiciels */}
+        <Route path="software" element={
+          <PermissionRoute permissions={['software.view', 'software.create', 'software.update', 'software.delete']}>
+            <Software />
           </PermissionRoute>
         } />
         
         {/* Tickets */}
         <Route path="tickets" element={
-          <PermissionRoute permissions={['tickets.view_all', 'tickets.view_team', 'tickets.view_own', 'tickets.create']}>
+          <PermissionRoute permissions={['tickets.view_all', 'tickets.view_filiale', 'tickets.view_team', 'tickets.view_own', 'tickets.create']}>
             <AdminTickets />
+          </PermissionRoute>
+        } />
+        <Route path="tickets/list" element={
+          <PermissionRoute permissions={['tickets.view_all', 'tickets.view_filiale', 'tickets.view_team', 'tickets.view_own']}>
+            <TicketList />
           </PermissionRoute>
         } />
         <Route path="tickets/:id" element={
           <PermissionRoute permissions={['tickets.view_all', 'tickets.view_team', 'tickets.view_own']}>
             <AdminTicketDetails />
+          </PermissionRoute>
+        } />
+        <Route path="ticket-internes" element={<Navigate to="/app/tickets?tab=internes" replace />} />
+        <Route path="ticket-internes/:id" element={
+          <PermissionRoute permissions={['tickets_internes.view_own', 'tickets_internes.view_department', 'tickets_internes.view_filiale', 'tickets_internes.view_all']}>
+            <TicketInternalDetails />
           </PermissionRoute>
         } />
         <Route path="ticket-categories" element={
@@ -169,7 +217,7 @@ function AppRoutes() {
             'incidents.view', 'incidents.view_all', 'incidents.view_team', 'incidents.view_own',
             'service_requests.view', 'service_requests.view_all', 'service_requests.view_team', 'service_requests.view_own',
             'changes.view', 'changes.view_all', 'changes.view_team', 'changes.view_own',
-            'tickets.view_all', 'tickets.view_team', 'tickets.view_own', 'tickets.create',
+            'tickets.view_all', 'tickets.view_filiale', 'tickets.view_team', 'tickets.view_own', 'tickets.create',
             'ticket_categories.view',
           ]}>
             <TicketsByCategory />
@@ -289,6 +337,9 @@ function AppRoutes() {
         
         {/* Profil */}
         <Route path="profile" element={<Profile />} />
+
+        {/* Historique des notifications */}
+        <Route path="notifications/history" element={<NotificationHistory />} />
       </Route>
 
       {/* Redirection par défaut */}
@@ -303,9 +354,10 @@ function AppRoutes() {
         }
       />
       
-      {/* Route 404 */}
-      <Route path="*" element={<NotFound />} />
-    </Routes>
+        {/* Route 404 */}
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </Suspense>
   )
 }
 

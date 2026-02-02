@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Download, Clock, Ticket, AlertCircle, Users, HardDrive, FolderKanban } from 'lucide-react'
+import { Download, Clock, Ticket, AlertCircle, Users, HardDrive, FolderKanban, Package, Laptop, BookOpen, FileText, Eye } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { AccessDenied } from '../../components/AccessDenied'
 import {
@@ -27,20 +27,31 @@ import {
   AssetReportDTO,
   KnowledgeReportDTO,
   DashboardDTO,
+  TicketInternalStatsDTO,
 } from '../../services/reportsService'
 import { slaService, SLAViolationDTO } from '../../services/slaService'
 import { ticketService, TicketDTO } from '../../services/ticketService'
+import { ticketInternalService, TicketInternalDTO } from '../../services/ticketInternalService'
 import { projectService, ProjectDTO } from '../../services/projectService'
+import { softwareService, FilialeSoftwareDTO, SoftwareDTO } from '../../services/softwareService'
+import { filialeService, FilialeDTO } from '../../services/filialeService'
+import { assetService, AssetInventoryDTO } from '../../services/assetService'
+import { knowledgeService, KnowledgeArticleDTO } from '../../services/knowledgeService'
 import { Link } from 'react-router-dom'
 
+/** Périmètre du tableau de bord : department = même département, filiale = même filiale, global = tout */
+export type ReportScope = 'department' | 'filiale' | 'global'
+
 export interface ReportsProps {
+  /** Périmètre des données (department | filiale | global) pour filtrer par tableau de bord */
+  reportScope?: ReportScope
   /** Titre affiché en en-tête (défaut: "Dashboard") */
   title?: string
   /** Sous-titre / description (défaut: "Vue d'ensemble de votre système Kronos") */
   subtitle?: string
 }
 
-const Reports = ({ title = 'Dashboard', subtitle = "Vue d'ensemble de votre système Kronos" }: ReportsProps) => {
+const Reports = ({ reportScope, title = 'Dashboard', subtitle = "Vue d'ensemble de votre système Kronos" }: ReportsProps) => {
   const { hasPermission } = useAuth()
   const [selectedReport, setSelectedReport] = useState('overview')
   const [dateRange, setDateRange] = useState('month')
@@ -58,9 +69,20 @@ const Reports = ({ title = 'Dashboard', subtitle = "Vue d'ensemble de votre syst
   const [violationFilterCategory, setViolationFilterCategory] = useState<string>('all')
   const [recentTickets, setRecentTickets] = useState<TicketDTO[]>([])
   const [loadingRecentTickets, setLoadingRecentTickets] = useState(false)
+  const [overviewTicketTab, setOverviewTicketTab] = useState<'normaux' | 'internes'>('normaux')
+  const [recentInternalTickets, setRecentInternalTickets] = useState<TicketInternalDTO[]>([])
+  const [loadingRecentInternalTickets, setLoadingRecentInternalTickets] = useState(false)
   const [projectList, setProjectList] = useState<ProjectDTO[]>([])
   const [projectMembersList, setProjectMembersList] = useState<{ projectId: number; projectName: string; members: string[] }[]>([])
   const [loadingProjectMembers, setLoadingProjectMembers] = useState(false)
+  const [allDeployments, setAllDeployments] = useState<FilialeSoftwareDTO[]>([])
+  const [allSoftware, setAllSoftware] = useState<SoftwareDTO[]>([])
+  const [allFiliales, setAllFiliales] = useState<FilialeDTO[]>([])
+  const [loadingSoftwareDeployments, setLoadingSoftwareDeployments] = useState(false)
+  const [assetInventory, setAssetInventory] = useState<AssetInventoryDTO | null>(null)
+  const [loadingAssetInventory, setLoadingAssetInventory] = useState(false)
+  const [knowledgeArticles, setKnowledgeArticles] = useState<KnowledgeArticleDTO[]>([])
+  const [loadingKnowledgeArticles, setLoadingKnowledgeArticles] = useState(false)
 
   const canViewProjects =
     hasPermission('projects.view') ||
@@ -68,59 +90,74 @@ const Reports = ({ title = 'Dashboard', subtitle = "Vue d'ensemble de votre syst
     hasPermission('projects.view_team') ||
     hasPermission('projects.view_own')
 
+  const canViewSoftware = hasPermission('software.view')
+  const canViewAssets = hasPermission('assets.view_all') || hasPermission('assets.view_team') || hasPermission('assets.view_own')
+  const canViewKnowledge = hasPermission('knowledge.view_all') || hasPermission('knowledge.view_published') || hasPermission('knowledge.view_own')
+  const canViewTicketInternes =
+    hasPermission('tickets_internes.view_own') ||
+    hasPermission('tickets_internes.view_department') ||
+    hasPermission('tickets_internes.view_filiale') ||
+    hasPermission('tickets_internes.view_all')
+
+  const REPORTS_LOAD_TIMEOUT_MS = 25000 // 25 s max pour éviter le loader infini
+
   useEffect(() => {
     let isMounted = true
     const loadReports = async () => {
-      // Vérifier les permissions avant de charger les données
-      if (!hasPermission('reports.view_global') && !hasPermission('reports.view_team')) {
+      if (!hasPermission('reports.view_global') && !hasPermission('reports.view_filiale') && !hasPermission('reports.view_team')) {
         setLoading(false)
         return
       }
       setLoading(true)
+      const period = selectedReport === 'overview' ? 'year' : dateRange
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Délai de chargement des rapports dépassé')), REPORTS_LOAD_TIMEOUT_MS)
+      )
       try {
-        const [
-          ticketCount,
-          distribution,
-          avgResolution,
-          workload,
-          sla,
-          assets,
-          knowledge,
-          dashboardData,
-          projectsData = [],
-        ] = await Promise.all([
-          // Pour le dashboard, on utilise "year" pour avoir tous les tickets dans le graphe
-          reportsService.getTicketCountReport(selectedReport === 'overview' ? 'year' : dateRange),
-          reportsService.getTicketTypeDistribution(),
-          reportsService.getAverageResolutionTime(),
-          reportsService.getWorkloadByAgent(dateRange),
-          reportsService.getSlaCompliance(dateRange),
-          reportsService.getAssetSummary(dateRange),
-          reportsService.getKnowledgeSummary(dateRange),
-          reportsService.getDashboard(dateRange),
-          canViewProjects ? projectService.getAll().then((r) => (Array.isArray(r) ? r : [])).catch(() => []) : Promise.resolve([]),
+        // Phase 1 : uniquement le dashboard (1 requête) pour afficher la page rapidement
+        const dashboardData = await Promise.race([
+          reportsService.getDashboard(dateRange, reportScope),
+          timeoutPromise,
         ])
-
         if (!isMounted) return
-        console.log('Ticket Distribution Data:', distribution)
-        console.log('Ticket Count Report Data:', ticketCount)
-        console.log('Breakdown:', ticketCount?.breakdown)
-        console.log('Total tickets:', ticketCount?.count)
-        console.log('Period:', ticketCount?.period)
-        console.log('Date range selected:', dateRange)
-        setTicketCountReport(ticketCount)
-        setTicketDistribution(distribution)
-        console.log('Average Resolution Time:', avgResolution)
-        console.log('Average time value:', avgResolution?.average_time, 'minutes')
-        setAverageResolution(avgResolution)
-        setWorkloadByAgent(workload)
-        setSlaCompliance(sla)
-        setAssetSummary(assets)
-        setKnowledgeSummary(knowledge)
         setDashboard(dashboardData)
+        setLoading(false)
+
+        // Requêtes « récents » en arrière-plan (n'attendent pas)
+        loadRecentTickets()
+        if (canViewTicketInternes) loadRecentInternalTickets()
+
+        // Phase 2 : reste des données en arrière-plan (ne bloque plus l'affichage)
+        const rest = await Promise.race([
+          Promise.all([
+            reportsService.getTicketCountReport(period, reportScope),
+            reportsService.getTicketTypeDistribution(reportScope),
+            reportsService.getAverageResolutionTime(reportScope),
+            reportsService.getWorkloadByAgent(dateRange, reportScope),
+            reportsService.getSlaCompliance(dateRange, reportScope),
+            reportsService.getAssetSummary(dateRange, reportScope),
+            reportsService.getKnowledgeSummary(dateRange, reportScope),
+            canViewProjects
+              ? projectService.getAll(reportScope ? { scope: reportScope } : undefined).then((r) => (Array.isArray(r) ? r : [])).catch(() => [])
+              : Promise.resolve([]),
+          ]),
+          timeoutPromise,
+        ]).catch(() => null)
+        if (!isMounted || !rest) return
+        const [ticketCount, distribution, avgResolution, workload, sla, assets, knowledge, projectsData = []] = rest
+        setTicketCountReport(ticketCount ?? null)
+        setTicketDistribution(distribution ?? null)
+        setAverageResolution(avgResolution ?? null)
+        setWorkloadByAgent(workload ?? [])
+        setSlaCompliance(sla ?? null)
+        setAssetSummary(assets ?? null)
+        setKnowledgeSummary(knowledge ?? null)
         setProjectList(Array.isArray(projectsData) ? projectsData : [])
       } catch (error) {
-        console.error('Erreur chargement rapports:', error)
+        if (isMounted) {
+          setTicketCountReport(null)
+          setDashboard(null)
+        }
       } finally {
         if (isMounted) {
           setLoading(false)
@@ -135,6 +172,7 @@ const Reports = ({ title = 'Dashboard', subtitle = "Vue d'ensemble de votre syst
         const violations = await slaService.getAllViolations({
           period: dateRange,
           category: violationFilterCategory !== 'all' ? violationFilterCategory : undefined,
+          scope: reportScope,
         })
         if (isMounted) {
           setSlaViolations(Array.isArray(violations) ? violations : [])
@@ -154,7 +192,7 @@ const Reports = ({ title = 'Dashboard', subtitle = "Vue d'ensemble de votre syst
     const loadRecentTickets = async () => {
       setLoadingRecentTickets(true)
       try {
-        const response = await ticketService.getAll(1, 5)
+        const response = await ticketService.getAll(1, 5, { scope: reportScope })
         if (isMounted) {
           setRecentTickets(response.tickets || [])
         }
@@ -170,15 +208,34 @@ const Reports = ({ title = 'Dashboard', subtitle = "Vue d'ensemble de votre syst
       }
     }
 
+    const loadRecentInternalTickets = async () => {
+      if (!canViewTicketInternes) return
+      setLoadingRecentInternalTickets(true)
+      try {
+        const response = await ticketInternalService.getAll(1, 10, { scope: reportScope })
+        if (isMounted) {
+          setRecentInternalTickets(response.tickets || [])
+        }
+      } catch (error) {
+        console.error('Erreur chargement tickets internes récents:', error)
+        if (isMounted) {
+          setRecentInternalTickets([])
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingRecentInternalTickets(false)
+        }
+      }
+    }
+
     loadReports()
-    loadRecentTickets()
     if (selectedReport === 'sla') {
       loadViolations()
     }
     return () => {
       isMounted = false
     }
-  }, [dateRange, selectedReport, violationFilterCategory, canViewProjects])
+  }, [dateRange, selectedReport, violationFilterCategory, canViewProjects, canViewTicketInternes, reportScope])
 
   // Charger les membres des projets quand l'onglet Projets est sélectionné
   useEffect(() => {
@@ -207,20 +264,56 @@ const Reports = ({ title = 'Dashboard', subtitle = "Vue d'ensemble de votre syst
     return () => { isMounted = false }
   }, [selectedReport, projectList, canViewProjects])
 
+  // Charger les données des logiciels déployés quand l'onglet Logiciels est sélectionné
+  useEffect(() => {
+    if (selectedReport !== 'logiciels' || !canViewSoftware) {
+      setAllDeployments([])
+      setAllSoftware([])
+      setAllFiliales([])
+      return
+    }
+    let isMounted = true
+    setLoadingSoftwareDeployments(true)
+    Promise.all([
+      softwareService.getAllDeployments().catch(() => []),
+      softwareService.getAll().catch(() => []),
+      filialeService.getAll().catch(() => []),
+    ])
+      .then(([deployments, software, filiales]) => {
+        if (!isMounted) return
+        console.log('Déploiements chargés:', deployments?.length || 0)
+        console.log('Logiciels chargés:', software?.length || 0)
+        console.log('Filiales chargées:', filiales?.length || 0)
+        setAllDeployments(Array.isArray(deployments) ? deployments : [])
+        setAllSoftware(Array.isArray(software) ? software : [])
+        setAllFiliales(Array.isArray(filiales) ? filiales : [])
+      })
+      .catch((err) => {
+        console.error('Erreur chargement déploiements:', err)
+        if (isMounted) {
+          setAllDeployments([])
+          setAllSoftware([])
+          setAllFiliales([])
+        }
+      })
+      .finally(() => {
+        if (isMounted) setLoadingSoftwareDeployments(false)
+      })
+    return () => { isMounted = false }
+  }, [selectedReport, canViewSoftware])
+
   // Vérifier les permissions avant d'afficher la page
-  if (!hasPermission('reports.view_global') && !hasPermission('reports.view_team')) {
+  if (!hasPermission('reports.view_global') && !hasPermission('reports.view_filiale') && !hasPermission('reports.view_team')) {
     return <AccessDenied message="Vous n'avez pas la permission de voir les rapports" />
   }
 
+  // Évolution des tickets par statut (alignée sur la base : ouvert, en_cours, en_attente, resolu, cloture)
   const ticketTrend = useMemo(() => {
     if (!ticketCountReport?.breakdown || ticketCountReport.breakdown.length === 0) {
-      console.log('No breakdown data available', ticketCountReport)
       return []
     }
-    console.log('Processing breakdown:', ticketCountReport.breakdown)
     const isMonthView = dateRange === 'quarter' || dateRange === 'year'
     return ticketCountReport.breakdown.map((item) => {
-      // item.date peut être une string ISO (depuis JSON) ou déjà un objet Date
       const dateStr = typeof item.date === 'string' ? item.date : (item.date != null ? String(item.date) : '')
       const date = new Date(dateStr)
       const label = Number.isNaN(date.getTime())
@@ -228,11 +321,11 @@ const Reports = ({ title = 'Dashboard', subtitle = "Vue d'ensemble de votre syst
         : date.toLocaleDateString('fr-FR', isMonthView ? { month: 'short', year: 'numeric' } : { day: '2-digit', month: 'short' })
       return {
         name: label,
-        créés: item.created ?? item.count,
-        clôturés: item.closed ?? 0,
-        'en cours': item.in_progress ?? 0,
-        'en attente': item.pending ?? 0,
         ouverts: item.open ?? 0,
+        en_cours: item.in_progress ?? 0,
+        en_attente: item.pending ?? 0,
+        resolu: item.resolved ?? 0,
+        cloture: item.closed ?? 0,
       }
     })
   }, [ticketCountReport, dateRange])
@@ -250,14 +343,34 @@ const Reports = ({ title = 'Dashboard', subtitle = "Vue d'ensemble de votre syst
       { name: 'Support', value: ticketDistribution.support ?? 0, color: '#06b6d4' },
     ]
     // Filtrer les catégories avec des valeurs > 0
-    const filtered = categories.filter(cat => cat.value > 0)
-    
-    // Calculer le total pour vérifier
-    const total = filtered.reduce((sum, cat) => sum + cat.value, 0)
-    console.log('Ticket by category - Total:', total, 'Categories:', filtered.map(c => `${c.name}: ${c.value}`).join(', '))
-    
-    return filtered
+    return categories.filter(cat => cat.value > 0)
   }, [ticketDistribution])
+
+  const internalTicketByStatus = useMemo(() => {
+    const byStatus = dashboard?.ticket_internes?.by_status
+    if (!byStatus || typeof byStatus !== 'object') return []
+    const statusLabels: Record<string, string> = {
+      ouvert: 'Ouvert',
+      en_cours: 'En cours',
+      en_attente: 'En attente',
+      valide: 'Validé',
+      cloture: 'Clôturé',
+    }
+    const colors: Record<string, string> = {
+      ouvert: '#06b6d4',
+      en_cours: '#f59e0b',
+      en_attente: '#8b5cf6',
+      valide: '#10b981',
+      cloture: '#059669',
+    }
+    return Object.entries(byStatus)
+      .filter(([, value]) => value > 0)
+      .map(([status, value]) => ({
+        name: statusLabels[status] || status,
+        value,
+        color: colors[status] || '#6b7280',
+      }))
+  }, [dashboard?.ticket_internes?.by_status])
 
   const slaTotalTickets = slaCompliance?.total_tickets ?? 0
   const slaViolationsCount = slaCompliance?.total_violations ?? 0
@@ -373,7 +486,282 @@ const Reports = ({ title = 'Dashboard', subtitle = "Vue d'ensemble de votre syst
       }))
   }, [projectList])
 
-  const kpis = [
+  // Calculer les statistiques des logiciels pour les KPIs
+  const softwareStats = useMemo(() => {
+    if (selectedReport !== 'logiciels' || !canViewSoftware) {
+      return null
+    }
+    const totalDeployments = allDeployments.length
+    const activeDeployments = allDeployments.filter(d => d.is_active).length
+    const uniqueFiliales = new Set(allDeployments.map(d => d.filiale_id)).size
+    const uniqueSoftware = new Set(allDeployments.map(d => d.software_id)).size
+    return {
+      totalDeployments,
+      activeDeployments,
+      inactiveDeployments: totalDeployments - activeDeployments,
+      uniqueFiliales,
+      uniqueSoftware,
+    }
+  }, [selectedReport, canViewSoftware, allDeployments])
+
+  // Statistiques des logiciels déployés pour le dashboard complet
+  const softwareDeploymentStats = useMemo(() => {
+    if (selectedReport !== 'logiciels' || !canViewSoftware) {
+      return {
+        totalDeployments: 0,
+        activeDeployments: 0,
+        inactiveDeployments: 0,
+        uniqueFiliales: 0,
+        uniqueSoftware: 0,
+        deploymentsByFiliale: [],
+        topSoftware: [],
+        statusPieData: [],
+        topFilialesChart: [],
+      }
+    }
+    const totalDeployments = allDeployments.length
+    const activeDeployments = allDeployments.filter(d => d.is_active).length
+    const inactiveDeployments = totalDeployments - activeDeployments
+    
+    // Répartition par filiale
+    const map = new Map<number, { name: string; count: number; active: number }>()
+    allDeployments.forEach(dep => {
+      const filialeId = dep.filiale_id
+      const filiale = allFiliales.find(f => f.id === filialeId)
+      const name = filiale?.name || `Filiale #${filialeId}`
+      const current = map.get(filialeId) || { name, count: 0, active: 0 }
+      map.set(filialeId, {
+        name,
+        count: current.count + 1,
+        active: current.active + (dep.is_active ? 1 : 0)
+      })
+    })
+    const deploymentsByFiliale = Array.from(map.values()).sort((a, b) => b.count - a.count)
+
+    // Top logiciels les plus déployés
+    const softwareMap = new Map<number, { name: string; code: string; version?: string; count: number; active: number }>()
+    allDeployments.forEach(dep => {
+      const softwareId = dep.software_id
+      const software = allSoftware.find(s => s.id === softwareId)
+      const name = software?.name || `Logiciel #${softwareId}`
+      const code = software?.code || ''
+      const version = software?.version
+      const current = softwareMap.get(softwareId) || { name, code, version, count: 0, active: 0 }
+      softwareMap.set(softwareId, {
+        name,
+        code,
+        version,
+        count: current.count + 1,
+        active: current.active + (dep.is_active ? 1 : 0)
+      })
+    })
+    const topSoftware = Array.from(softwareMap.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+      .map(s => ({
+        name: s.name.length > 25 ? s.name.substring(0, 25) + '…' : s.name,
+        fullName: s.name,
+        code: s.code,
+        version: s.version,
+        count: s.count,
+        active: s.active
+      }))
+
+    // Répartition par statut
+    const statusPieData = [
+      { name: 'Actifs', value: activeDeployments, color: '#10b981' },
+      { name: 'Inactifs', value: inactiveDeployments, color: '#6b7280' },
+    ].filter(x => x.value > 0)
+
+    // Filiales avec le plus de déploiements
+    const topFilialesChart = deploymentsByFiliale.slice(0, 10).map(f => ({
+      name: f.name.length > 15 ? f.name.substring(0, 15) + '…' : f.name,
+      fullName: f.name,
+      déploiements: f.count,
+      actifs: f.active
+    }))
+
+    return {
+      totalDeployments,
+      activeDeployments,
+      inactiveDeployments,
+      uniqueFiliales: deploymentsByFiliale.length,
+      uniqueSoftware: softwareMap.size,
+      deploymentsByFiliale,
+      topSoftware,
+      statusPieData,
+      topFilialesChart,
+    }
+  }, [selectedReport, canViewSoftware, allDeployments, allFiliales, allSoftware])
+
+  const kpis = selectedReport === 'logiciels' && canViewSoftware ? [
+    {
+      name: 'Total déploiements',
+      value: softwareStats ? `${softwareStats.totalDeployments}` : '—',
+      icon: Package,
+      color: 'text-blue-600',
+    },
+    {
+      name: 'Déploiements actifs',
+      value: softwareStats ? `${softwareStats.activeDeployments}` : '—',
+      icon: Package,
+      color: 'text-emerald-600',
+    },
+    {
+      name: 'Déploiements inactifs',
+      value: softwareStats ? `${softwareStats.inactiveDeployments}` : '—',
+      icon: Package,
+      color: 'text-gray-600',
+    },
+    {
+      name: 'Filiales concernées',
+      value: softwareStats ? `${softwareStats.uniqueFiliales}` : '—',
+      icon: Users,
+      color: 'text-purple-600',
+    },
+    {
+      name: 'Logiciels déployés',
+      value: softwareStats ? `${softwareStats.uniqueSoftware}` : '—',
+      icon: Package,
+      color: 'text-orange-600',
+    },
+    {
+      name: 'Taux d\'activation',
+      value: softwareStats && softwareStats.totalDeployments > 0 
+        ? `${Math.round((softwareStats.activeDeployments / softwareStats.totalDeployments) * 100)}%`
+        : '—',
+      icon: AlertCircle,
+      color: 'text-green-600',
+    },
+  ] : selectedReport === 'actifs' && canViewAssets ? [
+    {
+      name: 'Total actifs',
+      value: assetInventory ? `${assetInventory.total || 0}` : '—',
+      icon: HardDrive,
+      color: 'text-blue-600',
+    },
+    {
+      name: 'En utilisation',
+      value: assetInventory ? `${assetInventory.by_status?.in_use || 0}` : '—',
+      icon: Laptop,
+      color: 'text-emerald-600',
+    },
+    {
+      name: 'En maintenance',
+      value: assetInventory ? `${assetInventory.by_status?.maintenance || 0}` : '—',
+      icon: HardDrive,
+      color: 'text-orange-600',
+    },
+    {
+      name: 'Hors service',
+      value: assetInventory ? `${assetInventory.by_status?.retired || 0}` : '—',
+      icon: HardDrive,
+      color: 'text-red-600',
+    },
+    {
+      name: 'Disponibles',
+      value: assetInventory ? `${assetInventory.by_status?.available || 0}` : '—',
+      icon: HardDrive,
+      color: 'text-green-600',
+    },
+  ] : selectedReport === 'connaissances' && canViewKnowledge ? [
+    {
+      name: 'Total articles',
+      value: `${knowledgeArticles.length}`,
+      icon: BookOpen,
+      color: 'text-blue-600',
+    },
+    {
+      name: 'Publiés',
+      value: `${knowledgeArticles.filter((a) => a.is_published).length}`,
+      icon: FileText,
+      color: 'text-emerald-600',
+    },
+    {
+      name: 'Brouillons',
+      value: `${knowledgeArticles.filter((a) => !a.is_published).length}`,
+      icon: FileText,
+      color: 'text-gray-600',
+    },
+    {
+      name: 'Vues totales',
+      value: `${knowledgeArticles.reduce((sum, a) => sum + a.view_count, 0)}`,
+      icon: Eye,
+      color: 'text-purple-600',
+    },
+  ] : selectedReport === 'overview' && overviewTicketTab === 'internes' && canViewTicketInternes ? [
+    {
+      name: 'Total tickets internes',
+      value: dashboard?.ticket_internes != null ? `${dashboard.ticket_internes.total}` : (loading ? '—' : '0'),
+      icon: Ticket,
+      color: 'text-blue-600',
+    },
+    {
+      name: 'Ouverts',
+      value: dashboard?.ticket_internes != null ? `${dashboard.ticket_internes.open}` : (loading ? '—' : '0'),
+      icon: Ticket,
+      color: 'text-orange-600',
+    },
+    {
+      name: 'Clôturés',
+      value: dashboard?.ticket_internes != null ? `${dashboard.ticket_internes.closed}` : (loading ? '—' : '0'),
+      icon: Ticket,
+      color: 'text-green-600',
+    },
+  ] : selectedReport === 'overview' && overviewTicketTab === 'normaux' ? [
+    {
+      name: 'Total tickets',
+      value: dashboard?.tickets != null ? `${dashboard.tickets.total}` : (loading ? '—' : '0'),
+      icon: Ticket,
+      color: 'text-blue-600',
+    },
+    {
+      name: 'Ouverts',
+      value: dashboard?.tickets != null ? `${dashboard.tickets.open}` : (loading ? '—' : '0'),
+      icon: Ticket,
+      color: 'text-orange-600',
+    },
+    {
+      name: 'Clôturés',
+      value: dashboard?.tickets != null ? `${dashboard.tickets.closed}` : (loading ? '—' : '0'),
+      icon: Ticket,
+      color: 'text-green-600',
+    },
+    {
+      name: 'Utilisateurs actifs',
+      value: dashboard?.users ? `${dashboard.users.active}` : '—',
+      icon: Users,
+      color: 'text-primary-600',
+    },
+    {
+      name: 'Actifs IT',
+      value: dashboard?.assets ? `${dashboard.assets.total}` : '—',
+      icon: HardDrive,
+      color: 'text-green-600',
+    },
+    ...(canViewProjects
+      ? [
+          {
+            name: 'Projets actifs',
+            value: `${projectStats.active}`,
+            icon: FolderKanban,
+            color: 'text-emerald-600',
+          },
+        ]
+      : []),
+    {
+      name: 'Temps moyen de résolution',
+      value: averageResolution ? `${averageResolution.average_time} min` : '—',
+      icon: Clock,
+      color: 'text-orange-600',
+    },
+    {
+      name: 'Conformité SLA',
+      value: slaCompliance ? `${slaCompliance.overall_compliance.toFixed(0)}%` : '—',
+      icon: AlertCircle,
+      color: 'text-green-600',
+    },
+  ] : [
     {
       name: 'Tickets créés',
       value: ticketCountReport ? `${ticketCountReport.count}` : '—',
@@ -402,12 +790,6 @@ const Reports = ({ title = 'Dashboard', subtitle = "Vue d'ensemble de votre syst
           },
         ]
       : []),
-    {
-      name: 'Heures travaillées',
-      value: dashboard?.worked_hours ? `${Math.round(dashboard.worked_hours.total_hours).toLocaleString('fr-FR')}h` : '—',
-      icon: Clock,
-      color: 'text-purple-600',
-    },
     {
       name: 'Temps moyen de résolution',
       value: averageResolution ? `${averageResolution.average_time} min` : '—',
@@ -456,232 +838,423 @@ const Reports = ({ title = 'Dashboard', subtitle = "Vue d'ensemble de votre syst
 
       {/* Sélection du type de rapport */}
       <div className="card">
-        <div className="flex space-x-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setSelectedReport('overview')}
-            className={`btn ${selectedReport === 'overview' ? 'btn-primary' : 'btn-secondary'}`}
+            className={`btn text-sm sm:text-base px-3 sm:px-4 py-2 ${selectedReport === 'overview' ? 'btn-primary' : 'btn-secondary'}`}
           >
             Vue d'ensemble
           </button>
           <button
             onClick={() => setSelectedReport('tickets')}
-            className={`btn ${selectedReport === 'tickets' ? 'btn-primary' : 'btn-secondary'}`}
+            className={`btn text-sm sm:text-base px-3 sm:px-4 py-2 ${selectedReport === 'tickets' ? 'btn-primary' : 'btn-secondary'}`}
           >
             Tickets
           </button>
           <button
             onClick={() => setSelectedReport('performance')}
-            className={`btn ${selectedReport === 'performance' ? 'btn-primary' : 'btn-secondary'}`}
+            className={`btn text-sm sm:text-base px-3 sm:px-4 py-2 ${selectedReport === 'performance' ? 'btn-primary' : 'btn-secondary'}`}
           >
             Performance
           </button>
           <button
             onClick={() => setSelectedReport('sla')}
-            className={`btn ${selectedReport === 'sla' ? 'btn-primary' : 'btn-secondary'}`}
+            className={`btn text-sm sm:text-base px-3 sm:px-4 py-2 ${selectedReport === 'sla' ? 'btn-primary' : 'btn-secondary'}`}
           >
             SLA
           </button>
           {canViewProjects && (
             <button
               onClick={() => setSelectedReport('projets')}
-              className={`btn ${selectedReport === 'projets' ? 'btn-primary' : 'btn-secondary'}`}
+              className={`btn text-sm sm:text-base px-3 sm:px-4 py-2 ${selectedReport === 'projets' ? 'btn-primary' : 'btn-secondary'}`}
             >
               Projets
+            </button>
+          )}
+          {canViewSoftware && (
+            <button
+              onClick={() => setSelectedReport('logiciels')}
+              className={`btn text-sm sm:text-base px-3 sm:px-4 py-2 ${selectedReport === 'logiciels' ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              Logiciels
+            </button>
+          )}
+          {canViewAssets && (
+            <button
+              onClick={() => setSelectedReport('actifs')}
+              className={`btn text-sm sm:text-base px-3 sm:px-4 py-2 ${selectedReport === 'actifs' ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              Actifs
+            </button>
+          )}
+          {canViewKnowledge && (
+            <button
+              onClick={() => setSelectedReport('connaissances')}
+              className={`btn text-sm sm:text-base px-3 sm:px-4 py-2 ${selectedReport === 'connaissances' ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              <span className="hidden sm:inline">Base de connaissances</span>
+              <span className="sm:hidden">BC</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {kpis.map((kpi) => {
-          const Icon = kpi.icon
-          return (
-            <div key={kpi.name} className="card">
-              <div className="flex items-center justify-between mb-2">
-                <Icon className={`w-6 h-6 ${kpi.color}`} />
-                {loading ? (
-                  <div className="w-4 h-4 rounded-full bg-gray-200 dark:bg-gray-700 animate-pulse" />
-                ) : null}
+      {/* Message du tableau de bord (ex: aucun département associé au compte) */}
+      {reportScope === 'department' && dashboard?.message && (
+        <div className="card border-amber-500 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20">
+          <p className="text-amber-800 dark:text-amber-200 font-medium">{dashboard.message}</p>
+        </div>
+      )}
+
+      {/* Onglets Tickets normaux | Tickets internes (Vue d'ensemble uniquement) */}
+      {selectedReport === 'overview' && canViewTicketInternes && (
+        <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
+          <button
+            type="button"
+            onClick={() => setOverviewTicketTab('normaux')}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+              overviewTicketTab === 'normaux'
+                ? 'bg-primary-600 text-white dark:bg-primary-500'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+          >
+            Tickets normaux
+          </button>
+          <button
+            type="button"
+            onClick={() => setOverviewTicketTab('internes')}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+              overviewTicketTab === 'internes'
+                ? 'bg-primary-600 text-white dark:bg-primary-500'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+          >
+            Tickets internes
+          </button>
+        </div>
+      )}
+
+      {/* KPI Cards - Affichés sous l'onglet "Vue d'ensemble", "Logiciels", "Actifs" et "Base de connaissances" */}
+      {(selectedReport === 'overview' || selectedReport === 'logiciels' || selectedReport === 'actifs' || selectedReport === 'connaissances') && (
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          {kpis.map((kpi) => {
+            const Icon = kpi.icon
+            return (
+              <div key={kpi.name} className="card">
+                <div className="flex items-center justify-between mb-2">
+                  <Icon className={`w-6 h-6 ${kpi.color}`} />
+                  {loading ? (
+                    <div className="w-4 h-4 rounded-full bg-gray-200 dark:bg-gray-700 animate-pulse" />
+                  ) : null}
+                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">{kpi.name}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{kpi.value}</p>
               </div>
-              <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">{kpi.name}</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{kpi.value}</p>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      )}
 
       {/* Graphiques principaux */}
       {selectedReport === 'overview' && (
         <div className="space-y-6">
+          {/* Onglet normaux : Évolution + Répartition par catégorie | Onglet internes : Répartition par statut */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="card">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Évolution des tickets</h2>
-              {loading ? (
-                <div className="flex items-center justify-center h-[300px]">
-                  <div className="text-gray-500 dark:text-gray-400">Chargement...</div>
+            {overviewTicketTab === 'internes' && canViewTicketInternes ? (
+              <>
+                <div className="card">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Répartition des tickets internes par statut</h2>
+                  {loading ? (
+                    <div className="flex items-center justify-center h-[300px]">
+                      <div className="text-gray-500 dark:text-gray-400">Chargement...</div>
+                    </div>
+                  ) : internalTicketByStatus.length === 0 ? (
+                    <div className="flex items-center justify-center h-[300px]">
+                      <div className="text-center">
+                        <p className="text-gray-500 dark:text-gray-400 mb-2">Aucune donnée disponible</p>
+                        <p className="text-sm text-gray-400 dark:text-gray-500">
+                          {dashboard?.ticket_internes ? 'Aucun ticket interne pour ce périmètre.' : 'Chargement des données...'}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <PieChart>
+                          <Pie
+                            data={internalTicketByStatus}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            label={({ name, percent }) => (percent > 0.05 ? `${name} ${(percent * 100).toFixed(1)}%` : '')}
+                            outerRadius={100}
+                            fill="#8884d8"
+                            dataKey="value"
+                          >
+                            {internalTicketByStatus.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            formatter={(value: number) => {
+                              const total = internalTicketByStatus.reduce((sum, s) => sum + s.value, 0)
+                              const percent = total > 0 ? ((value / total) * 100).toFixed(1) : '0'
+                              return `${value} ticket${value > 1 ? 's' : ''} (${percent}%)`
+                            }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="mt-4 text-center text-sm text-gray-600 dark:text-gray-400">
+                        Total: {internalTicketByStatus.reduce((sum, s) => sum + s.value, 0)} ticket(s) interne(s)
+                      </div>
+                    </>
+                  )}
                 </div>
-              ) : ticketTrend.length === 0 ? (
-                <div className="flex items-center justify-center h-[300px]">
-                  <div className="text-center">
-                    <p className="text-gray-500 dark:text-gray-400 mb-2">Aucune donnée disponible</p>
-                    <p className="text-sm text-gray-400 dark:text-gray-500 mb-2">
-                      {ticketCountReport 
-                        ? `Aucun ticket trouvé pour cette période (${dateRange === 'week' ? 'cette semaine' : dateRange === 'month' ? 'ce mois' : dateRange === 'quarter' ? 'ce trimestre' : 'cette année'})`
-                        : 'Chargement des données...'}
-                    </p>
-                    {ticketCountReport && ticketCountReport.count > 0 && (
-                      <p className="text-xs text-gray-400 dark:text-gray-500 italic">
-                        Total: {ticketCountReport.count} ticket(s) trouvé(s), mais aucune répartition par date disponible.
-                      </p>
-                    )}
-                  </div>
+                <div className="card">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Tickets internes</h2>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Les tickets internes n'ont pas d'évolution temporelle ni de répartition par catégorie comme les tickets normaux.
+                    Utilisez le graphique à gauche pour la répartition par statut et la liste ci-dessous pour les tickets récents.
+                  </p>
                 </div>
-              ) : (
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={ticketTrend}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis />
-                    <Tooltip formatter={(value: number) => `${value} ticket${value > 1 ? 's' : ''}`} />
-                    <Legend />
-                    <Line type="monotone" dataKey="créés" stroke="#3b82f6" name="Créés" strokeWidth={2} />
-                    <Line type="monotone" dataKey="clôturés" stroke="#10b981" name="Clôturés" strokeWidth={2} />
-                    <Line type="monotone" dataKey="en cours" stroke="#f59e0b" name="En cours" strokeWidth={2} />
-                    <Line type="monotone" dataKey="en attente" stroke="#8b5cf6" name="En attente" strokeWidth={2} />
-                    <Line type="monotone" dataKey="ouverts" stroke="#06b6d4" name="Ouverts" strokeWidth={2} />
-                  </LineChart>
-                </ResponsiveContainer>
-              )}
-            </div>
+              </>
+            ) : (
+              <>
+                <div className="card">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Évolution des tickets</h2>
+                  {loading ? (
+                    <div className="flex items-center justify-center h-[300px]">
+                      <div className="text-gray-500 dark:text-gray-400">Chargement...</div>
+                    </div>
+                  ) : ticketTrend.length === 0 ? (
+                    <div className="flex items-center justify-center h-[300px]">
+                      <div className="text-center">
+                        <p className="text-gray-500 dark:text-gray-400 mb-2">Aucune donnée disponible</p>
+                        <p className="text-sm text-gray-400 dark:text-gray-500 mb-2">
+                          {ticketCountReport 
+                            ? `Aucun ticket trouvé pour cette période (${dateRange === 'week' ? 'cette semaine' : dateRange === 'month' ? 'ce mois' : dateRange === 'quarter' ? 'ce trimestre' : 'cette année'})`
+                            : 'Chargement des données...'}
+                        </p>
+                        {ticketCountReport && ticketCountReport.count > 0 && (
+                          <p className="text-xs text-gray-400 dark:text-gray-500 italic">
+                            Total: {ticketCountReport.count} ticket(s) trouvé(s), mais aucune répartition par date disponible.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={ticketTrend}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" />
+                        <YAxis />
+                        <Tooltip formatter={(value: number) => `${value} ticket${value > 1 ? 's' : ''}`} />
+                        <Legend />
+                        <Line type="monotone" dataKey="ouverts" stroke="#06b6d4" name="Ouverts" strokeWidth={2} />
+                        <Line type="monotone" dataKey="en_cours" stroke="#f59e0b" name="En cours" strokeWidth={2} />
+                        <Line type="monotone" dataKey="en_attente" stroke="#8b5cf6" name="En attente" strokeWidth={2} />
+                        <Line type="monotone" dataKey="resolu" stroke="#a855f7" name="Résolu" strokeWidth={2} />
+                        <Line type="monotone" dataKey="cloture" stroke="#10b981" name="Clôturés" strokeWidth={2} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
 
-            <div className="card">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Répartition par catégorie</h2>
-              {loading ? (
-                <div className="flex items-center justify-center h-[300px]">
-                  <div className="text-gray-500 dark:text-gray-400">Chargement...</div>
+                <div className="card">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Répartition par catégorie</h2>
+                  {loading ? (
+                    <div className="flex items-center justify-center h-[300px]">
+                      <div className="text-gray-500 dark:text-gray-400">Chargement...</div>
+                    </div>
+                  ) : ticketByCategory.length === 0 ? (
+                    <div className="flex items-center justify-center h-[300px]">
+                      <div className="text-center">
+                        <p className="text-gray-500 dark:text-gray-400 mb-2">Aucune donnée disponible</p>
+                        <p className="text-sm text-gray-400 dark:text-gray-500">
+                          {ticketDistribution ? 'Aucun ticket trouvé pour cette période' : 'Chargement des données...'}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <PieChart>
+                          <Pie
+                            data={ticketByCategory}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
+                            outerRadius={100}
+                            fill="#8884d8"
+                            dataKey="value"
+                          >
+                            {ticketByCategory.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip 
+                            formatter={(value: number) => {
+                              const total = ticketByCategory.reduce((sum, cat) => sum + cat.value, 0)
+                              const percent = total > 0 ? ((value / total) * 100).toFixed(1) : '0'
+                              return `${value} ticket${value > 1 ? 's' : ''} (${percent}%)`
+                            }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="mt-4 text-center text-sm text-gray-600 dark:text-gray-400">
+                        Total: {ticketByCategory.reduce((sum, cat) => sum + cat.value, 0)} ticket(s)
+                      </div>
+                    </>
+                  )}
                 </div>
-              ) : ticketByCategory.length === 0 ? (
-                <div className="flex items-center justify-center h-[300px]">
-                  <div className="text-center">
-                    <p className="text-gray-500 dark:text-gray-400 mb-2">Aucune donnée disponible</p>
-                    <p className="text-sm text-gray-400 dark:text-gray-500">
-                      {ticketDistribution ? 'Aucun ticket trouvé pour cette période' : 'Chargement des données...'}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={ticketByCategory}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
-                        outerRadius={100}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {ticketByCategory.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip 
-                        formatter={(value: number) => {
-                          const total = ticketByCategory.reduce((sum, cat) => sum + cat.value, 0)
-                          const percent = total > 0 ? ((value / total) * 100).toFixed(1) : '0'
-                          return `${value} ticket${value > 1 ? 's' : ''} (${percent}%)`
-                        }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="mt-4 text-center text-sm text-gray-600 dark:text-gray-400">
-                    Total: {ticketByCategory.reduce((sum, cat) => sum + cat.value, 0)} ticket(s)
-                  </div>
-                </>
-              )}
-            </div>
+              </>
+            )}
           </div>
 
-          {/* Tickets récents */}
+          {/* Tickets récents (normaux) ou Tickets internes récents */}
           <div className="card">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Tickets récents</h2>
-            {loadingRecentTickets ? (
-              <div className="flex items-center justify-center h-[200px]">
-                <div className="text-gray-500 dark:text-gray-400">Chargement...</div>
-              </div>
-            ) : recentTickets.length === 0 ? (
-              <div className="text-center text-gray-500 dark:text-gray-400 py-10">
-                <p>Aucun ticket récent.</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {recentTickets.map((ticket) => {
-                  const statusLabels: Record<string, string> = {
-                    ouvert: 'Ouvert',
-                    en_cours: 'En cours',
-                    en_attente: 'En attente',
-                    cloture: 'Clôturé',
-                    open: 'Ouvert',
-                    in_progress: 'En cours',
-                    pending: 'En attente',
-                    closed: 'Clôturé',
-                  }
-                  const priorityLabels: Record<string, string> = {
-                    faible: 'Faible',
-                    normale: 'Normale',
-                    moyenne: 'Moyenne',
-                    elevee: 'Élevée',
-                    critique: 'Critique',
-                    low: 'Faible',
-                    normal: 'Normale',
-                    medium: 'Moyenne',
-                    high: 'Élevée',
-                    critical: 'Critique',
-                  }
-                  const statusColor: Record<string, string> = {
-                    ouvert: 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300',
-                    en_cours: 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300',
-                    en_attente: 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300',
-                    cloture: 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300',
-                    open: 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300',
-                    in_progress: 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300',
-                    pending: 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300',
-                    closed: 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300',
-                  }
-                  return (
-                    <Link
-                      key={ticket.id}
-                      to={`/admin/tickets/${ticket.id}`}
-                      className="block border-b border-gray-200 dark:border-gray-700 pb-4 last:border-0 last:pb-0 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-lg p-3 transition-colors"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <span className="font-medium text-gray-900 dark:text-gray-100">{ticket.code || `#${ticket.id}`}</span>
-                            <span className={`badge ${statusColor[ticket.status.toLowerCase()] || 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'}`}>
-                              {statusLabels[ticket.status.toLowerCase()] || ticket.status}
-                            </span>
-                            {ticket.priority && (
-                              <span className="badge bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
-                                {priorityLabels[ticket.priority.toLowerCase()] || ticket.priority}
-                              </span>
-                            )}
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+              {overviewTicketTab === 'internes' && canViewTicketInternes ? 'Tickets internes récents' : 'Tickets récents'}
+            </h2>
+            {overviewTicketTab === 'internes' && canViewTicketInternes ? (
+              <>
+                {loadingRecentInternalTickets ? (
+                  <div className="flex items-center justify-center h-[200px]">
+                    <div className="text-gray-500 dark:text-gray-400">Chargement...</div>
+                  </div>
+                ) : recentInternalTickets.length === 0 ? (
+                  <div className="text-center text-gray-500 dark:text-gray-400 py-10">
+                    <p>Aucun ticket interne récent.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {recentInternalTickets.map((ticket) => {
+                      const statusLabels: Record<string, string> = {
+                        ouvert: 'Ouvert',
+                        en_cours: 'En cours',
+                        en_attente: 'En attente',
+                        valide: 'Validé',
+                        cloture: 'Clôturé',
+                      }
+                      const statusColor: Record<string, string> = {
+                        ouvert: 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300',
+                        en_cours: 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300',
+                        en_attente: 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300',
+                        valide: 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300',
+                        cloture: 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300',
+                      }
+                      return (
+                        <Link
+                          key={ticket.id}
+                          to={`/app/ticket-internes/${ticket.id}`}
+                          className="block border-b border-gray-200 dark:border-gray-700 pb-4 last:border-0 last:pb-0 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-lg p-3 transition-colors"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-2 mb-2">
+                                <span className="font-medium text-gray-900 dark:text-gray-100">{ticket.code || `#${ticket.id}`}</span>
+                                <span className={`badge ${statusColor[ticket.status || ''] || 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'}`}>
+                                  {statusLabels[ticket.status || ''] || ticket.status}
+                                </span>
+                                {ticket.priority && (
+                                  <span className="badge bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
+                                    {ticket.priority}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm text-gray-700 dark:text-gray-300 mb-1">{ticket.title || '—'}</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                {ticket.assigned_to
+                                  ? `Assigné à: ${ticket.assigned_to.first_name || ''} ${ticket.assigned_to.last_name || ''}`.trim() || ticket.assigned_to.username
+                                  : 'Non assigné'}
+                              </p>
+                            </div>
                           </div>
-                          <p className="text-sm text-gray-700 dark:text-gray-300 mb-1">{ticket.title}</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {ticket.assigned_to
-                              ? `Assigné à: ${ticket.assigned_to.first_name || ''} ${ticket.assigned_to.last_name || ''}`.trim() || ticket.assigned_to.username
-                              : 'Non assigné'}
-                          </p>
-                        </div>
-                      </div>
-                    </Link>
-                  )
-                })}
-              </div>
+                        </Link>
+                      )
+                    })}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {loadingRecentTickets ? (
+                  <div className="flex items-center justify-center h-[200px]">
+                    <div className="text-gray-500 dark:text-gray-400">Chargement...</div>
+                  </div>
+                ) : recentTickets.length === 0 ? (
+                  <div className="text-center text-gray-500 dark:text-gray-400 py-10">
+                    <p>Aucun ticket récent.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {recentTickets.map((ticket) => {
+                      const statusLabels: Record<string, string> = {
+                        ouvert: 'Ouvert',
+                        en_cours: 'En cours',
+                        en_attente: 'En attente',
+                        cloture: 'Clôturé',
+                        open: 'Ouvert',
+                        in_progress: 'En cours',
+                        pending: 'En attente',
+                        closed: 'Clôturé',
+                      }
+                      const priorityLabels: Record<string, string> = {
+                        faible: 'Faible',
+                        normale: 'Normale',
+                        moyenne: 'Moyenne',
+                        elevee: 'Élevée',
+                        critique: 'Critique',
+                        low: 'Faible',
+                        normal: 'Normale',
+                        medium: 'Moyenne',
+                        high: 'Élevée',
+                        critical: 'Critique',
+                      }
+                      const statusColor: Record<string, string> = {
+                        ouvert: 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300',
+                        en_cours: 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300',
+                        en_attente: 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300',
+                        cloture: 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300',
+                        open: 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300',
+                        in_progress: 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300',
+                        pending: 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300',
+                        closed: 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300',
+                      }
+                      return (
+                        <Link
+                          key={ticket.id}
+                          to={`/admin/tickets/${ticket.id}`}
+                          className="block border-b border-gray-200 dark:border-gray-700 pb-4 last:border-0 last:pb-0 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-lg p-3 transition-colors"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-2 mb-2">
+                                <span className="font-medium text-gray-900 dark:text-gray-100">{ticket.code || `#${ticket.id}`}</span>
+                                <span className={`badge ${statusColor[ticket.status.toLowerCase()] || 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'}`}>
+                                  {statusLabels[ticket.status.toLowerCase()] || ticket.status}
+                                </span>
+                                {ticket.priority && (
+                                  <span className="badge bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
+                                    {priorityLabels[ticket.priority.toLowerCase()] || ticket.priority}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm text-gray-700 dark:text-gray-300 mb-1">{ticket.title}</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                {ticket.assigned_to
+                                  ? `Assigné à: ${ticket.assigned_to.first_name || ''} ${ticket.assigned_to.last_name || ''}`.trim() || ticket.assigned_to.username
+                                  : 'Non assigné'}
+                              </p>
+                            </div>
+                          </div>
+                        </Link>
+                      )
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -999,13 +1572,13 @@ const Reports = ({ title = 'Dashboard', subtitle = "Vue d'ensemble de votre syst
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" />
                   <YAxis />
-                  <Tooltip />
+                  <Tooltip formatter={(value: number) => `${value} ticket${value > 1 ? 's' : ''}`} />
                   <Legend />
-                  <Line type="monotone" dataKey="créés" stroke="#3b82f6" name="Créés" strokeWidth={2} />
-                  <Line type="monotone" dataKey="clôturés" stroke="#10b981" name="Clôturés" strokeWidth={2} />
-                  <Line type="monotone" dataKey="en cours" stroke="#f59e0b" name="En cours" strokeWidth={2} />
-                  <Line type="monotone" dataKey="en attente" stroke="#8b5cf6" name="En attente" strokeWidth={2} />
                   <Line type="monotone" dataKey="ouverts" stroke="#06b6d4" name="Ouverts" strokeWidth={2} />
+                  <Line type="monotone" dataKey="en_cours" stroke="#f59e0b" name="En cours" strokeWidth={2} />
+                  <Line type="monotone" dataKey="en_attente" stroke="#8b5cf6" name="En attente" strokeWidth={2} />
+                  <Line type="monotone" dataKey="resolu" stroke="#a855f7" name="Résolu" strokeWidth={2} />
+                  <Line type="monotone" dataKey="cloture" stroke="#10b981" name="Clôturés" strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
             )}
@@ -1708,6 +2281,264 @@ const Reports = ({ title = 'Dashboard', subtitle = "Vue d'ensemble de votre syst
                   })}
               </div>
             </div>
+          )}
+        </div>
+      )}
+
+      {canViewSoftware && selectedReport === 'logiciels' && (
+        <div className="space-y-6">
+          {loadingSoftwareDeployments ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-gray-500 dark:text-gray-400">Chargement des données...</div>
+            </div>
+          ) : !softwareDeploymentStats || softwareDeploymentStats.totalDeployments === 0 ? (
+            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+              <Package className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p className="text-lg font-medium mb-2">Aucun déploiement enregistré</p>
+              <p className="text-sm">Les métriques apparaîtront lorsque des logiciels seront déployés chez les filiales.</p>
+            </div>
+          ) : (
+            <>
+            {/* Graphiques */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="card">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Répartition par statut</h2>
+                {loadingSoftwareDeployments ? (
+                  <div className="flex items-center justify-center h-[300px]">
+                    <div className="text-gray-500 dark:text-gray-400">Chargement...</div>
+                  </div>
+                ) : !softwareDeploymentStats || softwareDeploymentStats.statusPieData.length === 0 ? (
+                  <div className="flex items-center justify-center h-[300px]">
+                    <p className="text-gray-500 dark:text-gray-400">Aucun déploiement</p>
+                  </div>
+                ) : (
+                  <>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <PieChart>
+                        <Pie
+                          data={softwareDeploymentStats.statusPieData}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
+                          outerRadius={100}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {softwareDeploymentStats.statusPieData.map((entry, i) => (
+                            <Cell key={`cell-${i}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(v: number) => `${v} déploiement${v > 1 ? 's' : ''}`} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="mt-4 text-center text-sm text-gray-600 dark:text-gray-400">
+                      Total: {softwareDeploymentStats.totalDeployments} déploiement(s)
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="card">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Top 10 — Déploiements par filiale</h2>
+                {loadingSoftwareDeployments ? (
+                  <div className="flex items-center justify-center h-[300px]">
+                    <div className="text-gray-500 dark:text-gray-400">Chargement...</div>
+                  </div>
+                ) : !softwareDeploymentStats || softwareDeploymentStats.topFilialesChart.length === 0 ? (
+                  <div className="flex items-center justify-center h-[300px]">
+                    <p className="text-gray-500 dark:text-gray-400">Aucun déploiement</p>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={softwareDeploymentStats?.topFilialesChart || []} layout="vertical" margin={{ left: 20, right: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" />
+                      <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
+                      <Tooltip 
+                        formatter={(value: number, name: string) => {
+                          if (name === 'déploiements') return `${value} déploiement${value > 1 ? 's' : ''}`
+                          if (name === 'actifs') return `${value} actif${value > 1 ? 's' : ''}`
+                          return value
+                        }}
+                        labelFormatter={(label) => {
+                          const item = (softwareDeploymentStats?.topFilialesChart || []).find(f => f.name === label)
+                          return item?.fullName || label
+                        }}
+                      />
+                      <Legend />
+                      <Bar dataKey="déploiements" fill="#3b82f6" name="Total" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="actifs" fill="#10b981" name="Actifs" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
+            {/* Top logiciels déployés */}
+            <div className="card">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Top 10 — Logiciels les plus déployés</h2>
+              {loadingSoftwareDeployments ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-gray-500 dark:text-gray-400">Chargement...</div>
+                </div>
+              ) : !softwareDeploymentStats || softwareDeploymentStats.topSoftware.length === 0 ? (
+                <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+                  <Package className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>Aucun déploiement enregistré</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead className="bg-gray-50 dark:bg-gray-800">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Logiciel
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Code
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Version
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Total déploiements
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Actifs
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                      {softwareDeploymentStats.topSoftware.map((software) => {
+                        const softwareId = allSoftware.find(s => s.name === software.fullName)?.id
+                        return (
+                          <tr key={software.fullName} className="hover:bg-gray-50 dark:hover:bg-gray-800/60">
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                {software.fullName}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="text-sm text-gray-600 dark:text-gray-400">
+                                {software.code || '—'}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="text-sm text-gray-600 dark:text-gray-400">
+                                {software.version ? `v${software.version}` : '—'}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                {software.count}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">
+                                {software.active}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm">
+                              {softwareId && (
+                                <Link
+                                  to={`/app/software`}
+                                  className="text-primary-600 dark:text-primary-400 hover:text-primary-800 dark:hover:text-primary-300 font-medium"
+                                >
+                                  Voir détails
+                                </Link>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Répartition par filiale (tableau détaillé) */}
+            <div className="card">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Répartition par filiale</h2>
+              {loadingSoftwareDeployments ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-gray-500 dark:text-gray-400">Chargement...</div>
+                </div>
+              ) : !softwareDeploymentStats || softwareDeploymentStats.deploymentsByFiliale.length === 0 ? (
+                <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+                  <Package className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>Aucun déploiement enregistré</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead className="bg-gray-50 dark:bg-gray-800">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Filiale
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Total déploiements
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Actifs
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Inactifs
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                      {(softwareDeploymentStats?.deploymentsByFiliale || []).map((filiale) => {
+                        const filialeId = allFiliales.find(f => f.name === filiale.name)?.id
+                        return (
+                          <tr key={filiale.name} className="hover:bg-gray-50 dark:hover:bg-gray-800/60">
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                {filiale.name}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                {filiale.count}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">
+                                {filiale.active}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="text-sm text-gray-600 dark:text-gray-400">
+                                {filiale.count - filiale.active}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm">
+                              {filialeId && (
+                                <Link
+                                  to={`/app/filiales`}
+                                  className="text-primary-600 dark:text-primary-400 hover:text-primary-800 dark:hover:text-primary-300 font-medium"
+                                >
+                                  Voir détails
+                                </Link>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            </>
           )}
         </div>
       )}

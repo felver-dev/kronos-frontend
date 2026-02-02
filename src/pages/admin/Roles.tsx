@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react'
 import { Shield, Plus, Edit, Trash2, Key, Loader2, Search, ChevronDown, ChevronRight, CheckSquare, Square } from 'lucide-react'
 import Modal from '../../components/Modal'
 import ConfirmModal from '../../components/ConfirmModal'
+import Pagination from '../../components/Pagination'
 import { roleService, RoleDTO, CreateRoleRequest, UpdateRoleRequest } from '../../services/roleService'
 import { permissionService, PermissionDTO } from '../../services/permissionService'
+import { filialeService, FilialeDTO } from '../../services/filialeService'
 import { useToastContext } from '../../contexts/ToastContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { PermissionGuard } from '../../components/PermissionGuard'
@@ -11,7 +13,12 @@ import { AccessDenied } from '../../components/AccessDenied'
 
 const Roles = () => {
   const toast = useToastContext()
-  const { hasPermission, refreshUser } = useAuth()
+  const { user, hasPermission, refreshUser } = useAuth()
+  // Peut modifier/supprimer un rôle : droits update/delete/manage OU créateur du rôle (délégation)
+  const canManageRole = (role: RoleDTO) =>
+    hasPermission('roles.update') ||
+    hasPermission('roles.manage') ||
+    (hasPermission('roles.delegate_permissions') && role.created_by_id != null && Number(role.created_by_id) === Number(user?.id))
   const [roles, setRoles] = useState<RoleDTO[]>([])
   const [permissions, setPermissions] = useState<PermissionDTO[]>([])
   const [loading, setLoading] = useState(true)
@@ -34,22 +41,59 @@ const Roles = () => {
   const [createFormData, setCreateFormData] = useState<CreateRoleRequest>({
     name: '',
     description: '',
+    permissions: [],
+    filiale_id: undefined,
   })
+  const [filiales, setFiliales] = useState<FilialeDTO[]>([])
+  const [loadingFiliales, setLoadingFiliales] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(10)
+  const [assignablePermissions, setAssignablePermissions] = useState<string[]>([]) // Permissions que l'utilisateur peut déléguer
+  const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]) // Permissions sélectionnées lors de la création
   const [editFormData, setEditFormData] = useState<UpdateRoleRequest>({
     name: '',
     description: '',
   })
+  const [permissionsModalReadOnly, setPermissionsModalReadOnly] = useState(false)
+  const [showOnlyAssignedInModal, setShowOnlyAssignedInModal] = useState(false)
+
+  const loadFiliales = async () => {
+    setLoadingFiliales(true)
+    try {
+      const data = await filialeService.getAll(true)
+      setFiliales(Array.isArray(data) ? data : [])
+    } catch (err) {
+      console.error('Erreur chargement filiales:', err)
+      setFiliales([])
+    } finally {
+      setLoadingFiliales(false)
+    }
+  }
 
   // Charger les rôles et permissions
   useEffect(() => {
     // Vérifier les permissions avant de charger les données
-    if (!hasPermission('roles.view') && !hasPermission('roles.create') && !hasPermission('roles.update') && !hasPermission('roles.delete') && !hasPermission('roles.manage')) {
+    if (!hasPermission('roles.view') && !hasPermission('roles.view_filiale') && !hasPermission('roles.view_department') && !hasPermission('roles.create') && !hasPermission('roles.update') && !hasPermission('roles.delete') && !hasPermission('roles.manage') && !hasPermission('roles.delegate_permissions') && !hasPermission('roles.view_assigned_only')) {
       setLoading(false)
       return
     }
     loadRoles()
-    loadPermissions()
+    // Charger les permissions assignables si l'utilisateur peut déléguer
+    if (hasPermission('roles.delegate_permissions') || hasPermission('roles.manage')) {
+      loadAssignablePermissions()
+    } else if (hasPermission('roles.view_assigned_only')) {
+      // Voir uniquement les permissions assignées : charger toutes les permissions pour afficher les détails en lecture seule
+      loadPermissions()
+    } else {
+      loadPermissions()
+    }
   }, [hasPermission])
+
+  useEffect(() => {
+    if (isCreateModalOpen && filiales.length === 0 && !loadingFiliales) {
+      loadFiliales()
+    }
+  }, [isCreateModalOpen])
 
   const loadRoles = async () => {
     try {
@@ -74,6 +118,26 @@ const Roles = () => {
     } catch (error) {
       console.error('Erreur lors du chargement des permissions:', error)
       toast.error('Erreur lors du chargement des permissions')
+    }
+  }
+
+  const loadAssignablePermissions = async () => {
+    try {
+      const assignablePerms = await roleService.getAssignablePermissions()
+      setAssignablePermissions(assignablePerms)
+      
+      // Charger aussi toutes les permissions pour avoir les détails (nom, description, module)
+      const allPerms = await permissionService.getAll()
+      const allPermsData = Array.isArray(allPerms) ? allPerms : (allPerms as any).data || []
+      
+      // Filtrer pour ne garder que les permissions assignables
+      const filteredPerms = allPermsData.filter((p: PermissionDTO) => assignablePerms.includes(p.code))
+      setPermissions(filteredPerms)
+    } catch (error) {
+      console.error('Erreur lors du chargement des permissions assignables:', error)
+      toast.error('Erreur lors du chargement des permissions assignables')
+      // Fallback : charger toutes les permissions
+      loadPermissions()
     }
   }
 
@@ -102,12 +166,25 @@ const Roles = () => {
       return
     }
 
+    // Empêcher la création d'un rôle avec le nom "ADMIN"
+    if (createFormData.name.toUpperCase() === 'ADMIN') {
+      toast.error('Impossible de créer un rôle avec le nom ADMIN (rôle système réservé)')
+      return
+    }
+
     setIsSubmitting(true)
     try {
-      await roleService.create(createFormData)
+      // Inclure les permissions sélectionnées dans la requête
+      const dataToSend: CreateRoleRequest = {
+        ...createFormData,
+        permissions: selectedPermissions.length > 0 ? selectedPermissions : undefined,
+      }
+      
+      await roleService.create(dataToSend)
       toast.success('Rôle créé avec succès')
       setIsCreateModalOpen(false)
-      setCreateFormData({ name: '', description: '' })
+      setCreateFormData({ name: '', description: '', permissions: [] })
+      setSelectedPermissions([])
       loadRoles()
     } catch (error) {
       console.error('Erreur:', error)
@@ -117,14 +194,12 @@ const Roles = () => {
     }
   }
 
-  // Ouvrir le modal d'édition
+  // Ouvrir le modal d'édition (créateur du rôle ou droits update/manage)
   const handleOpenEdit = (role: RoleDTO) => {
-    // Vérifier les permissions avant d'ouvrir le modal
-    if (!hasPermission('roles.update') && !hasPermission('roles.manage')) {
-      toast.error('Vous n\'avez pas la permission de modifier un rôle')
+    if (!canManageRole(role)) {
+      toast.error('Vous n\'avez pas la permission de modifier ce rôle')
       return
     }
-    
     setRoleToEdit(role)
     setEditFormData({
       name: role.name,
@@ -136,14 +211,11 @@ const Roles = () => {
   // Modifier un rôle
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    // Vérifier les permissions avant d'exécuter l'action
-    if (!hasPermission('roles.update') && !hasPermission('roles.manage')) {
-      toast.error('Vous n\'avez pas la permission de modifier un rôle')
+    if (!roleToEdit || !canManageRole(roleToEdit)) {
+      toast.error('Vous n\'avez pas la permission de modifier ce rôle')
       return
     }
-    
-    if (!roleToEdit || !editFormData.name?.trim()) {
+    if (!editFormData.name?.trim()) {
       toast.error('Le nom du rôle est requis')
       return
     }
@@ -163,25 +235,20 @@ const Roles = () => {
     }
   }
 
-  // Ouvrir le modal de suppression
+  // Ouvrir le modal de suppression (créateur du rôle ou droits delete/manage)
   const handleOpenDelete = (role: RoleDTO) => {
-    // Vérifier les permissions avant d'ouvrir le modal
-    if (!hasPermission('roles.delete') && !hasPermission('roles.manage')) {
-      toast.error('Vous n\'avez pas la permission de supprimer un rôle')
+    if (!canManageRole(role)) {
+      toast.error('Vous n\'avez pas la permission de supprimer ce rôle')
       return
     }
-    
     setRoleToDelete(role)
     setIsDeleteModalOpen(true)
   }
 
   // Supprimer un rôle
   const handleDelete = async () => {
-    if (!roleToDelete) return
-
-    // Vérifier les permissions avant d'exécuter l'action
-    if (!hasPermission('roles.delete') && !hasPermission('roles.manage')) {
-      toast.error('Vous n\'avez pas la permission de supprimer un rôle')
+    if (!roleToDelete || !canManageRole(roleToDelete)) {
+      toast.error('Vous n\'avez pas la permission de supprimer ce rôle')
       setIsDeleteModalOpen(false)
       setRoleToDelete(null)
       return
@@ -202,20 +269,35 @@ const Roles = () => {
     }
   }
 
-  // Ouvrir le modal de gestion des permissions
+  // Ouvrir le modal de gestion des permissions (créateur du rôle, droits update/manage, ou view_assigned_only en lecture seule)
   const handleOpenPermissions = async (role: RoleDTO) => {
-    // Vérifier les permissions avant d'ouvrir le modal
-    if (!hasPermission('roles.update') && !hasPermission('roles.manage')) {
-      toast.error('Vous n\'avez pas la permission de gérer les permissions d\'un rôle')
+    const canEdit = canManageRole(role) && (hasPermission('roles.delegate_permissions') || hasPermission('roles.manage'))
+    const canViewOnly = hasPermission('roles.view_assigned_only')
+    if (!canManageRole(role) && !canViewOnly) {
+      toast.error('Vous n\'avez pas la permission de voir ou gérer les permissions de ce rôle')
       return
     }
-    
     setRoleForPermissions(role)
+    setPermissionsModalReadOnly(!canEdit)
+    setShowOnlyAssignedInModal(false)
     try {
       const rolePerms = await roleService.getPermissions(role.id)
-      console.log('Permissions chargées pour le rôle:', role.name, rolePerms)
-      setRolePermissions(Array.isArray(rolePerms) ? rolePerms : [])
-      // Tous les modules sont fermés par défaut
+      const rolePermsList = Array.isArray(rolePerms) ? rolePerms : []
+      setRolePermissions(rolePermsList)
+      const allPerms = await permissionService.getAll()
+      const allPermsData = Array.isArray(allPerms) ? allPerms : (allPerms as any).data || []
+      if (!canEdit) {
+        // Lecture seule : afficher uniquement les permissions assignées au rôle
+        setPermissions((allPermsData as PermissionDTO[]).filter(p => rolePermsList.includes(p.code)))
+      } else {
+        if (!hasPermission('roles.manage') && assignablePermissions.length === 0) {
+          await loadAssignablePermissions()
+        }
+        const list = hasPermission('roles.manage')
+          ? allPermsData
+          : (allPermsData as PermissionDTO[]).filter(p => assignablePermissions.includes(p.code))
+        setPermissions(list)
+      }
       setOpenModules(new Set())
       setIsPermissionsModalOpen(true)
     } catch (error) {
@@ -237,8 +319,9 @@ const Roles = () => {
     })
   }
 
-  // Toggle une permission
+  // Toggle une permission (seulement si l'utilisateur peut la déléguer)
   const togglePermission = (permissionCode: string) => {
+    if (!assignablePermissions.includes(permissionCode)) return
     setRolePermissions(prev => {
       if (prev.includes(permissionCode)) {
         return prev.filter(p => p !== permissionCode)
@@ -248,46 +331,63 @@ const Roles = () => {
     })
   }
 
-  // Tout sélectionner / tout décocher (en haut du modal)
+  // Tout sélectionner / tout décocher (en haut du modal, uniquement les permissions déléguables)
   const toggleAllPermissions = () => {
-    const allSelected = permissions.length > 0 && permissions.every(p => rolePermissions.includes(p.code))
-    // allSelected → on affiche "Tout décocher", l’action doit tout décocher
+    const assignableInList = permissions.filter(p => assignablePermissions.includes(p.code))
+    const allAssignableSelected = assignableInList.length > 0 && assignableInList.every(p => rolePermissions.includes(p.code))
+    // → on affiche "Tout décocher", l’action doit tout décocher
     // !allSelected → on affiche "Tout sélectionner", l’action doit tout cocher
-    if (allSelected) {
-      setRolePermissions([])
+    if (allAssignableSelected) {
+      setRolePermissions(prev => prev.filter(c => !assignablePermissions.includes(c)))
     } else {
-      setRolePermissions(permissions.map(p => p.code))
+      setRolePermissions(prev => [...new Set([...prev, ...assignableInList.map(p => p.code)])])
     }
   }
 
-  // Tout cocher / tout décocher pour un module
+  // Tout cocher / tout décocher pour un module (uniquement les permissions déléguables)
   const toggleAllInModule = (modulePermissions: PermissionDTO[]) => {
-    const codes = modulePermissions.map(p => p.code)
-    const allInModuleSelected = modulePermissions.length > 0 && modulePermissions.every(p => rolePermissions.includes(p.code))
-    if (allInModuleSelected) {
-      setRolePermissions(prev => prev.filter(c => !codes.includes(c)))
+    const assignableCodes = modulePermissions.filter(p => assignablePermissions.includes(p.code)).map(p => p.code)
+    const allAssignableInModuleSelected = assignableCodes.length > 0 && assignableCodes.every(c => rolePermissions.includes(c))
+    if (allAssignableInModuleSelected) {
+      setRolePermissions(prev => prev.filter(c => !assignableCodes.includes(c)))
     } else {
-      setRolePermissions(prev => [...new Set([...prev, ...codes])])
+      setRolePermissions(prev => [...new Set([...prev, ...assignableCodes])])
     }
   }
 
   // Sauvegarder les permissions
   const handleSavePermissions = async () => {
-    if (!roleForPermissions) return
-
-    // Vérifier les permissions avant d'exécuter l'action
-    if (!hasPermission('roles.update') && !hasPermission('roles.manage')) {
-      toast.error('Vous n\'avez pas la permission de modifier les permissions d\'un rôle')
+    if (!roleForPermissions || !canManageRole(roleForPermissions)) {
+      toast.error('Vous n\'avez pas la permission de modifier les permissions de ce rôle')
       setIsPermissionsModalOpen(false)
       setRoleForPermissions(null)
       setRolePermissions([])
       return
     }
 
+    // Si l'utilisateur peut déléguer des permissions (pas admin système),
+    // valider que toutes les permissions sélectionnées sont assignables
+    // (sauf celles déjà assignées au rôle, pour éviter de les perdre)
+    if (hasPermission('roles.delegate_permissions') && assignablePermissions.length > 0 && !hasPermission('roles.manage')) {
+      // Récupérer les permissions actuellement assignées au rôle
+      const currentRolePerms = roleForPermissions ? await roleService.getPermissions(roleForPermissions.id).catch(() => []) : []
+      const currentRolePermsSet = new Set(Array.isArray(currentRolePerms) ? currentRolePerms : [])
+      
+      // Vérifier que toutes les nouvelles permissions sont assignables
+      // (on permet de garder les permissions déjà assignées même si elles ne sont plus assignables)
+      const newPermissions = rolePermissions.filter(perm => !currentRolePermsSet.has(perm))
+      const invalidPermissions = newPermissions.filter(perm => !assignablePermissions.includes(perm))
+      
+      if (invalidPermissions.length > 0) {
+        toast.error(`Vous ne pouvez assigner que les permissions que vous possédez vous-même. Permissions invalides: ${invalidPermissions.join(', ')}`)
+        return
+      }
+    }
+
     setIsSubmitting(true)
     try {
-      console.log('Sauvegarde des permissions pour le rôle:', roleForPermissions.name, rolePermissions)
-      await roleService.updatePermissions(roleForPermissions.id, rolePermissions)
+      const toSave = hasPermission('roles.manage') ? rolePermissions : rolePermissions.filter(p => assignablePermissions.includes(p))
+      await roleService.updatePermissions(roleForPermissions.id, toSave)
       toast.success('Permissions mises à jour avec succès')
       setIsPermissionsModalOpen(false)
       setRoleForPermissions(null)
@@ -317,6 +417,19 @@ const Roles = () => {
     role.description?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(filteredRoles.length / itemsPerPage))
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const paginatedRoles = filteredRoles.slice(startIndex, startIndex + itemsPerPage)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [itemsPerPage])
+
   // Ordre d'affichage des modules (groupe les catégories avec leur parent : KB+catégories KB, Actifs+catégories actifs, etc.)
   const MODULE_DISPLAY_ORDER = [
     'tickets', 'ticket_categories',
@@ -329,6 +442,33 @@ const Roles = () => {
     'other',
   ]
 
+  // Noms d'affichage des modules
+  const MODULE_DISPLAY_NAMES: Record<string, string> = {
+    'tickets': 'Tickets',
+    'ticket_categories': 'Catégories de tickets',
+    'users': 'Utilisateurs',
+    'roles': 'Rôles',
+    'offices': 'Sièges',
+    'departments': 'Départements',
+    'assets': 'Actifs',
+    'asset_categories': 'Catégories d\'actifs',
+    'knowledge': 'Base de connaissances',
+    'knowledge_categories': 'Catégories de connaissances',
+    'incidents': 'Incidents',
+    'service_requests': 'Demandes de service',
+    'changes': 'Changements',
+    'sla': 'SLA',
+    'timesheet': 'Feuille de temps',
+    'time_entries': 'Entrées de temps',
+    'delays': 'Retards',
+    'projects': 'Projets',
+    'audit': 'Audit',
+    'reports': 'Rapports',
+    'settings': 'Paramètres',
+    'search': 'Recherche',
+    'other': 'Autres',
+  }
+
   const sortedModuleEntries = Object.entries(permissionsByModule).sort(([a], [b]) => {
     const ia = MODULE_DISPLAY_ORDER.indexOf(a)
     const ib = MODULE_DISPLAY_ORDER.indexOf(b)
@@ -337,6 +477,13 @@ const Roles = () => {
     if (ib >= 0) return 1
     return a.localeCompare(b)
   })
+
+  // Pour le modal : filtrer à "assignées uniquement" si l'utilisateur peut éditer et a activé le filtre
+  const displayedModuleEntriesInModal = showOnlyAssignedInModal && !permissionsModalReadOnly
+    ? sortedModuleEntries
+        .map(([module, perms]) => [module, perms.filter(p => rolePermissions.includes(p.code))] as [string, PermissionDTO[]])
+        .filter(([, perms]) => perms.length > 0)
+    : sortedModuleEntries
 
   // Formater le nom du module
   const formatModuleName = (module: string): string => {
@@ -377,7 +524,7 @@ const Roles = () => {
   }
 
   // Vérifier les permissions avant d'afficher la page
-  if (!hasPermission('roles.view') && !hasPermission('roles.create') && !hasPermission('roles.update') && !hasPermission('roles.delete') && !hasPermission('roles.manage')) {
+  if (!hasPermission('roles.view') && !hasPermission('roles.view_filiale') && !hasPermission('roles.view_department') && !hasPermission('roles.create') && !hasPermission('roles.update') && !hasPermission('roles.delete') && !hasPermission('roles.manage') && !hasPermission('roles.delegate_permissions') && !hasPermission('roles.view_assigned_only')) {
     return <AccessDenied message="Vous n'avez pas la permission de voir les rôles" />
   }
 
@@ -445,7 +592,7 @@ const Roles = () => {
                 </tr>
               </thead>
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                {filteredRoles.map((role) => (
+                {paginatedRoles.map((role) => (
                   <tr key={role.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
@@ -473,7 +620,7 @@ const Roles = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex items-center justify-end space-x-2">
-                        <PermissionGuard permissions={['roles.update', 'roles.manage']} showMessage={false}>
+                        {canManageRole(role) && (
                           <button
                             onClick={() => handleOpenPermissions(role)}
                             className="inline-flex items-center px-3 py-1.5 text-sm text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-lg transition-colors"
@@ -482,26 +629,34 @@ const Roles = () => {
                             <Key className="w-4 h-4 mr-1" />
                             Permissions
                           </button>
-                        </PermissionGuard>
-                        {!role.is_system && (
-                          <PermissionGuard permissions={['roles.update', 'roles.delete', 'roles.manage']} showMessage={false}>
-                            <>
-                              <button
-                                onClick={() => handleOpenEdit(role)}
-                                className="inline-flex items-center px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                                title="Modifier"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleOpenDelete(role)}
-                                className="inline-flex items-center px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                                title="Supprimer"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </>
-                          </PermissionGuard>
+                        )}
+                        {!canManageRole(role) && hasPermission('roles.view_assigned_only') && (
+                          <button
+                            onClick={() => handleOpenPermissions(role)}
+                            className="inline-flex items-center px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                            title="Voir les permissions assignées"
+                          >
+                            <Key className="w-4 h-4 mr-1" />
+                            Voir les permissions
+                          </button>
+                        )}
+                        {!role.is_system && canManageRole(role) && (
+                          <>
+                            <button
+                              onClick={() => handleOpenEdit(role)}
+                              className="inline-flex items-center px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                              title="Modifier"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleOpenDelete(role)}
+                              className="inline-flex items-center px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                              title="Supprimer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>
@@ -511,6 +666,19 @@ const Roles = () => {
             </table>
           </div>
         )}
+
+        {/* Pagination */}
+        {!loading && filteredRoles.length > 0 && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredRoles.length}
+            itemsPerPage={itemsPerPage}
+            onPageChange={setCurrentPage}
+            onItemsPerPageChange={setItemsPerPage}
+            itemsPerPageOptions={[10, 25, 50, 100]}
+          />
+        )}
       </div>
 
       {/* Modal de création */}
@@ -518,9 +686,12 @@ const Roles = () => {
         isOpen={isCreateModalOpen}
         onClose={() => {
           setIsCreateModalOpen(false)
-          setCreateFormData({ name: '', description: '' })
+          setCreateFormData({ name: '', description: '', permissions: [], filiale_id: undefined })
+          setSelectedPermissions([])
+          setOpenModules(new Set())
         }}
         title="Créer un nouveau rôle"
+        size="lg"
       >
         <form onSubmit={handleCreate} className="space-y-4">
           <div>
@@ -538,6 +709,29 @@ const Roles = () => {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Filiale (optionnel)
+            </label>
+            {loadingFiliales ? (
+              <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-sm">
+                Chargement des filiales...
+              </div>
+            ) : (
+              <select
+                value={createFormData.filiale_id ?? ''}
+                onChange={(e) => setCreateFormData({ ...createFormData, filiale_id: e.target.value ? parseInt(e.target.value, 10) : undefined })}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">— Aucune (rôle global) —</option>
+                {filiales.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.code} – {f.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Description
             </label>
             <textarea
@@ -548,12 +742,15 @@ const Roles = () => {
               placeholder="Description du rôle..."
             />
           </div>
+
           <div className="flex justify-end space-x-3 pt-4">
             <button
               type="button"
               onClick={() => {
                 setIsCreateModalOpen(false)
-                setCreateFormData({ name: '', description: '' })
+                setCreateFormData({ name: '', description: '', permissions: [], filiale_id: undefined })
+                setSelectedPermissions([])
+                setOpenModules(new Set())
               }}
               className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
             >
@@ -662,13 +859,28 @@ const Roles = () => {
           setRoleForPermissions(null)
           setRolePermissions([])
           setOpenModules(new Set())
+          setPermissionsModalReadOnly(false)
+          setShowOnlyAssignedInModal(false)
         }}
-        title={`Gérer les permissions - ${roleForPermissions?.name}`}
+        title={permissionsModalReadOnly ? `Voir les permissions assignées - ${roleForPermissions?.name}` : `Gérer les permissions - ${roleForPermissions?.name}`}
         size="lg"
       >
         <div className="space-y-3">
-          {/* Bouton tout sélectionner / tout décocher en haut */}
-          {(() => {
+          {/* Toggle "Afficher uniquement les permissions assignées" (mode édition uniquement) */}
+          {!permissionsModalReadOnly && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showOnlyAssignedInModal}
+                onChange={(e) => setShowOnlyAssignedInModal(e.target.checked)}
+                className="w-4 h-4 text-primary-600 dark:text-primary-400 border-gray-300 dark:border-gray-600 rounded focus:ring-primary-500"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">Afficher uniquement les permissions assignées</span>
+            </label>
+          )}
+
+          {/* Bouton tout sélectionner / tout décocher en haut (masqué en lecture seule) */}
+          {!permissionsModalReadOnly && (() => {
             const allSelected = permissions.length > 0 && permissions.every(p => rolePermissions.includes(p.code))
             return (
               <button
@@ -687,7 +899,7 @@ const Roles = () => {
           })()}
 
           <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-3">
-          {sortedModuleEntries.map(([module, modulePermissions]) => {
+          {displayedModuleEntriesInModal.map(([module, modulePermissions]) => {
             const isOpen = openModules.has(module)
             const checkedCount = modulePermissions.filter(p => rolePermissions.includes(p.code)).length
             const totalCount = modulePermissions.length
@@ -707,13 +919,13 @@ const Roles = () => {
                       <ChevronRight className="w-5 h-5 text-gray-500 dark:text-gray-400 shrink-0" />
                     )}
                     <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
-                      {formatModuleName(module)}
+                      {MODULE_DISPLAY_NAMES[module] || module}
                     </h3>
                     <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
                       ({checkedCount}/{totalCount})
                     </span>
                   </button>
-                  {(() => {
+                  {!permissionsModalReadOnly && (() => {
                     const allInModuleSelected = totalCount > 0 && checkedCount === totalCount
                     return (
                       <button
@@ -737,22 +949,26 @@ const Roles = () => {
                 {isOpen && (
                   <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {modulePermissions.map((permission) => {
+                        {modulePermissions.map((permission) => {
                         const isChecked = rolePermissions.includes(permission.code)
+                        const canToggle = !permissionsModalReadOnly && assignablePermissions.includes(permission.code)
                         return (
                           <label
                             key={permission.id}
-                            className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all ${
+                            className={`flex items-center p-3 rounded-lg border transition-all ${
+                              canToggle ? 'cursor-pointer' : 'cursor-default opacity-90'
+                            } ${
                               isChecked
                                 ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-300 dark:border-primary-700'
                                 : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'
-                            }`}
+                            } ${!canToggle ? 'ring-1 ring-amber-200 dark:ring-amber-800' : ''}`}
                           >
                             <input
                               type="checkbox"
                               checked={isChecked}
+                              disabled={!canToggle}
                               onChange={() => togglePermission(permission.code)}
-                              className="w-4 h-4 text-primary-600 dark:text-primary-400 border-gray-300 dark:border-gray-600 rounded focus:ring-primary-500"
+                              className="w-4 h-4 text-primary-600 dark:text-primary-400 border-gray-300 dark:border-gray-600 rounded focus:ring-primary-500 disabled:opacity-70"
                             />
                             <div className="ml-3 flex-1">
                               <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -781,25 +997,29 @@ const Roles = () => {
                 setIsPermissionsModalOpen(false)
                 setRoleForPermissions(null)
                 setRolePermissions([])
+                setPermissionsModalReadOnly(false)
+                setShowOnlyAssignedInModal(false)
               }}
               className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
             >
-              Annuler
+              {permissionsModalReadOnly ? 'Fermer' : 'Annuler'}
             </button>
-            <button
-              onClick={handleSavePermissions}
-              disabled={isSubmitting}
-              className="px-4 py-2 text-sm font-medium text-white bg-primary-600 dark:bg-primary-500 rounded-lg hover:bg-primary-700 dark:hover:bg-primary-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin inline" />
-                  Enregistrement...
-                </>
-              ) : (
-                'Enregistrer les permissions'
-              )}
-            </button>
+            {!permissionsModalReadOnly && (
+              <button
+                onClick={handleSavePermissions}
+                disabled={isSubmitting}
+                className="px-4 py-2 text-sm font-medium text-white bg-primary-600 dark:bg-primary-500 rounded-lg hover:bg-primary-700 dark:hover:bg-primary-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin inline" />
+                    Enregistrement...
+                  </>
+                ) : (
+                  'Enregistrer les permissions'
+                )}
+              </button>
+            )}
           </div>
           </div>
         </div>

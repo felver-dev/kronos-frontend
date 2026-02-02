@@ -24,7 +24,7 @@ export interface RegisterRequest {
   password: string
   first_name?: string
   last_name?: string
-  department_id?: number
+  filiale_id: number
 }
 
 export interface RegisterResponse {

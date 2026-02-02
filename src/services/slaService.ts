@@ -123,11 +123,12 @@ export const slaService = {
     return apiRequest<SLAViolationDTO[]>(`/sla/${id}/violations`)
   },
 
-  // Récupérer toutes les violations (avec filtres optionnels)
-  getAllViolations: async (params?: { period?: string; category?: string }): Promise<SLAViolationDTO[]> => {
+  // Récupérer toutes les violations (scope = périmètre tableau de bord : department | filiale | global)
+  getAllViolations: async (params?: { period?: string; category?: string; scope?: 'department' | 'filiale' | 'global' }): Promise<SLAViolationDTO[]> => {
     const queryParams = new URLSearchParams()
     if (params?.period) queryParams.append('period', params.period)
     if (params?.category) queryParams.append('category', params.category)
+    if (params?.scope) queryParams.append('scope', params.scope)
     const query = queryParams.toString()
     return apiRequest<SLAViolationDTO[]>(`/sla/violations${query ? `?${query}` : ''}`)
   },

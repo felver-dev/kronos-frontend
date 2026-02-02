@@ -1,12 +1,16 @@
 import { apiRequest } from '../config/api'
+import { FilialeDTO } from './filialeService'
 
 export interface OfficeDTO {
   id: number
   name: string
+  code?: string
   country: string
   city: string
   commune?: string
   address?: string
+  filiale_id?: number
+  filiale?: FilialeDTO
   longitude?: number
   latitude?: number
   is_active: boolean
@@ -16,10 +20,12 @@ export interface OfficeDTO {
 
 export interface CreateOfficeRequest {
   name: string
+  code?: string
   country: string
   city: string
   commune?: string
   address?: string
+  filiale_id?: number
   longitude?: number
   latitude?: number
   is_active?: boolean
@@ -27,10 +33,12 @@ export interface CreateOfficeRequest {
 
 export interface UpdateOfficeRequest {
   name?: string
+  code?: string
   country?: string
   city?: string
   commune?: string
   address?: string
+  filiale_id?: number
   longitude?: number
   latitude?: number
   is_active?: boolean

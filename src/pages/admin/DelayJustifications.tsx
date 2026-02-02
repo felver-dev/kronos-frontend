@@ -248,7 +248,8 @@ const DelayJustifications = () => {
   const handleSubmitJustification = async () => {
     if (!justification.trim() || !selectedDelay) return
     try {
-      const existing = myDelays.find((d) => d.id === selectedDelay)?.justification
+      const delayForExisting = myDelays.find((d) => d.id === selectedDelay) || delays.find((d) => d.id === selectedDelay)
+      const existing = delayForExisting?.justification
       if (existing && existing.status === 'pending') {
         await delayService.updateJustification(selectedDelay, justification.trim())
       } else {
@@ -628,33 +629,46 @@ const DelayJustifications = () => {
                           </div>
                         )}
                         {delay.justification.status === 'pending' && (
-                          <div className="flex items-center gap-2 mt-3">
-                            <button
-                              onClick={() => openActionModal(delay.justification!.id, 'validate')}
-                              className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded bg-green-600 text-white hover:bg-green-700"
-                              disabled={actionLoading === delay.justification!.id}
-                            >
-                              <CheckCircle className="w-4 h-4 mr-1" />
-                              Valider
-                            </button>
-                            <button
-                              onClick={() => openActionModal(delay.justification!.id, 'reject')}
-                              className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded bg-red-600 text-white hover:bg-red-700"
-                              disabled={actionLoading === delay.justification!.id}
-                            >
-                              <XCircle className="w-4 h-4 mr-1" />
-                              Rejeter
-                            </button>
-                          </div>
+                          <PermissionGuard permissions={['delays.validate', 'timesheet.validate_justification']} showMessage={false}>
+                            <div className="flex items-center gap-2 mt-3">
+                              <button
+                                onClick={() => openActionModal(delay.justification!.id, 'validate')}
+                                className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded bg-green-600 text-white hover:bg-green-700"
+                                disabled={actionLoading === delay.justification!.id}
+                              >
+                                <CheckCircle className="w-4 h-4 mr-1" />
+                                Valider
+                              </button>
+                              <button
+                                onClick={() => openActionModal(delay.justification!.id, 'reject')}
+                                className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded bg-red-600 text-white hover:bg-red-700"
+                                disabled={actionLoading === delay.justification!.id}
+                              >
+                                <XCircle className="w-4 h-4 mr-1" />
+                                Rejeter
+                              </button>
+                            </div>
+                          </PermissionGuard>
                         )}
                       </div>
                     )}
 
                     {!delay.justification && delay.status === 'unjustified' && (
                       <div className="mt-4 p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
-                        <p className="text-sm text-orange-800 dark:text-orange-200">
-                          Aucune justification fournie. Le technicien doit justifier ce retard.
-                        </p>
+                        <div className="flex items-center justify-between gap-4 flex-wrap">
+                          <p className="text-sm text-orange-800 dark:text-orange-200">
+                            Aucune justification fournie. Le technicien doit justifier ce retard.
+                          </p>
+                          {(Number(delay.user_id) === Number(user?.id) || hasPermission('timesheet.justify_delay')) && (
+                            <button
+                              onClick={() => handleJustify(delay.id)}
+                              className="btn btn-primary flex items-center shrink-0"
+                            >
+                              <Plus className="w-4 h-4 mr-2" />
+                              Justifier
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -728,7 +742,7 @@ const DelayJustifications = () => {
                   </td>
                   <td className="px-6 py-4 text-right">
                     {justification.status === 'pending' ? (
-                      <PermissionGuard permission="delays.validate">
+                      <PermissionGuard permissions={['delays.validate', 'timesheet.validate_justification']} showMessage={false}>
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => openActionModal(justification.id, 'validate')}
@@ -804,7 +818,9 @@ const DelayJustifications = () => {
       )}
 
       {/* Formulaire de justification */}
-      {showJustifyForm && selectedDelay && (
+      {showJustifyForm && selectedDelay && (() => {
+        const delayForModal = myDelays.find((d) => d.id === selectedDelay) || delays.find((d) => d.id === selectedDelay)
+        return (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 dark:bg-gray-900 dark:bg-opacity-75 z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
@@ -822,16 +838,16 @@ const DelayJustifications = () => {
                 </button>
               </div>
 
-              {selectedDelay && (
+              {delayForModal && (
                 <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                   <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">Ticket concerné :</p>
                   <p className="font-semibold text-gray-900 dark:text-gray-100">
-                    {myDelays.find((d) => d.id === selectedDelay)?.ticket?.code || `#${selectedDelay}`} -{' '}
-                    {myDelays.find((d) => d.id === selectedDelay)?.ticket?.title || 'Ticket'}
+                    {delayForModal.ticket?.code || `#${delayForModal.ticket_id}`} -{' '}
+                    {delayForModal.ticket?.title || 'Ticket'}
                   </p>
                   <p className="text-sm text-gray-600 dark:text-gray-300 mt-2">
-                    Retard : +{formatTime(myDelays.find((d) => d.id === selectedDelay)?.delay_time || 0)} (
-                    {(myDelays.find((d) => d.id === selectedDelay)?.delay_percentage || 0).toFixed(1)}%)
+                    Retard : +{formatTime(delayForModal.delay_time ?? 0)} (
+                    {(delayForModal.delay_percentage ?? 0).toFixed(1)}%)
                   </p>
                 </div>
               )}
@@ -876,7 +892,8 @@ const DelayJustifications = () => {
             </div>
           </div>
         </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

@@ -334,54 +334,6 @@ const Knowledge = () => {
         </div>
       )}
 
-      {/* Statistiques - seulement pour admin */}
-      {!isEmployeeView && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="card">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Total articles</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</p>
-            </div>
-            <BookOpen className="w-8 h-8 text-primary-600 dark:text-primary-400" />
-          </div>
-        </div>
-        <div className="card">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Publiés</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.published}</p>
-            </div>
-            <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
-              <FileText className="w-5 h-5 text-green-600 dark:text-green-400" />
-            </div>
-          </div>
-        </div>
-        <div className="card">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Brouillons</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.draft}</p>
-            </div>
-            <div className="w-8 h-8 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center">
-              <FileText className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-            </div>
-          </div>
-        </div>
-        <div className="card">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Vues totales</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.totalViews}</p>
-            </div>
-            <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
-              <Eye className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-            </div>
-          </div>
-        </div>
-      </div>
-      )}
-
       {/* Filtres et recherche */}
       <div className="card">
         <div className="flex flex-col sm:flex-row gap-3">

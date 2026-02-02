@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { departmentService, DepartmentDTO, CreateDepartmentRequest, UpdateDepartmentRequest } from '../../services/departmentService'
 import { officeService, OfficeDTO } from '../../services/officeService'
+import { filialeService, FilialeDTO } from '../../services/filialeService'
 import { useToastContext } from '../../contexts/ToastContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { PermissionGuard } from '../../components/PermissionGuard'
 import { PermissionDenied } from '../../components/PermissionDenied'
-import { Plus, Edit, Trash2, Loader2, Building2 } from 'lucide-react'
+import { Plus, Edit, Trash2, Loader2, Building2, Shield } from 'lucide-react'
 import Modal from '../../components/Modal'
 import ConfirmModal from '../../components/ConfirmModal'
 import { useNavigate } from 'react-router-dom'
@@ -13,10 +14,16 @@ import { AccessDenied } from '../../components/AccessDenied'
 
 const Departments = () => {
   const toast = useToastContext()
-  const { hasPermission } = useAuth()
+  const { hasPermission, user } = useAuth()
   const navigate = useNavigate()
+  
+  // Vérifier si l'utilisateur peut créer/modifier un département dans n'importe quelle filiale
+  const canSelectFiliale = hasPermission('departments.create_any_filiale') || hasPermission('departments.update_any_filiale')
+  const canViewDepartments = hasPermission('departments.view') || hasPermission('departments.view_filiale') || hasPermission('departments.view_all')
   const [departments, setDepartments] = useState<DepartmentDTO[]>([])
   const [offices, setOffices] = useState<OfficeDTO[]>([])
+  const [filiales, setFiliales] = useState<FilialeDTO[]>([])
+  const [loadingFiliales, setLoadingFiliales] = useState(false)
   const [loading, setLoading] = useState(false)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
@@ -28,8 +35,10 @@ const Departments = () => {
     name: '',
     code: '',
     description: undefined,
+    filiale_id: canSelectFiliale ? 0 : (user?.filiale_id || 0),
     office_id: undefined,
     is_active: true,
+    is_it_department: false,
   })
   const [editFormData, setEditFormData] = useState<UpdateDepartmentRequest>({})
 
@@ -56,15 +65,41 @@ const Departments = () => {
     }
   }
 
+  const loadFiliales = async () => {
+    // Charger les filiales pour l'affichage (même si l'utilisateur ne peut pas les sélectionner)
+    setLoadingFiliales(true)
+    try {
+      // Utiliser la route publique pour charger les filiales actives (comme pour l'inscription)
+      const data = await filialeService.getActive()
+      setFiliales(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('Erreur lors du chargement des filiales:', error)
+      toast.error('Erreur lors du chargement des filiales')
+    } finally {
+      setLoadingFiliales(false)
+    }
+  }
+
   useEffect(() => {
     // Vérifier l'accès à la page
-    if (!hasPermission('departments.view') && !hasPermission('departments.create') && !hasPermission('departments.update') && !hasPermission('departments.delete')) {
+    if (!canViewDepartments && !hasPermission('departments.create') && !hasPermission('departments.update') && !hasPermission('departments.delete')) {
       navigate('/app/dashboard')
       return
     }
     loadDepartments()
     loadOffices()
-  }, [hasPermission, navigate])
+    loadFiliales()
+  }, [canViewDepartments, hasPermission, navigate])
+
+  // Mettre à jour filiale_id dans le formulaire de création quand user change
+  useEffect(() => {
+    if (!canSelectFiliale && user?.filiale_id && !isCreateModalOpen) {
+      setCreateFormData(prev => ({
+        ...prev,
+        filiale_id: user.filiale_id || 0,
+      }))
+    }
+  }, [canSelectFiliale, user?.filiale_id, isCreateModalOpen])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -77,17 +112,29 @@ const Departments = () => {
       toast.error('Le nom et le code sont requis')
       return
     }
+    if (!createFormData.filiale_id || createFormData.filiale_id === 0) {
+      toast.error('La filiale est obligatoire')
+      return
+    }
     setIsSubmitting(true)
     try {
-      await departmentService.create(createFormData)
+      // Préparer les données à envoyer (ne pas envoyer is_it_department si false)
+      const dataToSend: CreateDepartmentRequest = {
+        ...createFormData,
+        // Ne pas envoyer is_it_department si false pour éviter d'envoyer false explicitement
+        ...(createFormData.is_it_department ? { is_it_department: true } : {}),
+      }
+      await departmentService.create(dataToSend)
       toast.success('Département créé avec succès')
       setIsCreateModalOpen(false)
       setCreateFormData({
         name: '',
         code: '',
         description: undefined,
+        filiale_id: canSelectFiliale ? 0 : (user?.filiale_id || 0),
         office_id: undefined,
         is_active: true,
+        is_it_department: false,
       })
       loadDepartments()
     } catch (error) {
@@ -108,8 +155,10 @@ const Departments = () => {
       name: department.name,
       code: department.code,
       description: department.description,
+      filiale_id: canSelectFiliale ? department.filiale_id : (user?.filiale_id || department.filiale_id),
       office_id: department.office_id,
       is_active: department.is_active,
+      is_it_department: department.is_it_department ?? false,
     })
     setIsEditModalOpen(true)
   }
@@ -171,7 +220,7 @@ const Departments = () => {
   }
 
   // Vérifier l'accès à la page
-  if (!hasPermission('departments.view') && !hasPermission('departments.create') && !hasPermission('departments.update') && !hasPermission('departments.delete')) {
+  if (!canViewDepartments && !hasPermission('departments.create') && !hasPermission('departments.update') && !hasPermission('departments.delete')) {
     return <AccessDenied />
   }
 
@@ -199,7 +248,7 @@ const Departments = () => {
             <Loader2 className="w-6 h-6 animate-spin text-primary-600 dark:text-primary-400" />
             <span className="ml-3 text-gray-600 dark:text-gray-400">Chargement des départements...</span>
           </div>
-        ) : !hasPermission('departments.view') ? (
+        ) : !canViewDepartments ? (
           <div className="py-8">
             <PermissionDenied message="Vous n'avez pas la permission de voir la liste des départements" />
           </div>
@@ -218,6 +267,9 @@ const Departments = () => {
                     Description
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Filiale
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Siège
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -231,7 +283,7 @@ const Departments = () => {
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {departments.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={7} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
                       Aucun département enregistré
                     </td>
                   </tr>
@@ -239,8 +291,16 @@ const Departments = () => {
                   departments.map((department) => (
                     <tr key={department.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                          {department.name}
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                            {department.name}
+                          </div>
+                          {department.is_it_department && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200" title="Département IT - Résolveur de tickets">
+                              <Shield className="w-3 h-3" />
+                              IT
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -252,6 +312,20 @@ const Departments = () => {
                         <div className="text-sm text-gray-500 dark:text-gray-400">
                           {department.description || '-'}
                         </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {department.filiale ? (
+                          <div className="text-sm text-gray-900 dark:text-gray-100">
+                            {department.filiale.name}
+                            {department.filiale.code && (
+                              <span className="text-gray-500 dark:text-gray-400 ml-1">
+                                ({department.filiale.code})
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {department.office ? (
@@ -314,8 +388,10 @@ const Departments = () => {
             name: '',
             code: '',
             description: undefined,
+            filiale_id: canSelectFiliale ? 0 : (user?.filiale_id || 0),
             office_id: undefined,
             is_active: true,
+            is_it_department: false,
           })
         }}
         title="Nouveau département"
@@ -361,6 +437,79 @@ const Departments = () => {
                 placeholder="Description du département"
               />
             </div>
+            {canSelectFiliale ? (
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Filiale <span className="text-red-500">*</span>
+                </label>
+                {loadingFiliales ? (
+                  <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                    Chargement des filiales...
+                  </div>
+                ) : (
+                  <select
+                    value={createFormData.filiale_id || ''}
+                    onChange={(e) => setCreateFormData({ ...createFormData, filiale_id: e.target.value ? parseInt(e.target.value) : 0 })}
+                    className="input"
+                    required
+                  >
+                    <option value="">Sélectionner une filiale</option>
+                    {filiales.map((filiale) => (
+                      <option key={filiale.id} value={filiale.id}>
+                        {filiale.name} {filiale.code ? `(${filiale.code})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            ) : (
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Filiale <span className="text-red-500">*</span>
+                </label>
+                <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                  {(() => {
+                    const filialeId = createFormData.filiale_id || user?.filiale_id
+                    const filiale = filialeId ? filiales.find(f => f.id === filialeId) : null
+                    
+                    if (filiale) {
+                      return (
+                        <>
+                          {filiale.name}
+                          {filiale.code && ` (${filiale.code})`}
+                        </>
+                      )
+                    }
+                    
+                    return user?.filiale_id ? '-' : 'Aucune filiale'
+                  })()}
+                </div>
+              </div>
+            )}
+            {/* Département IT : visible uniquement pour la filiale fournisseur de logiciels (is_software_provider) */}
+            {(() => {
+              const selectedFilialeId = createFormData.filiale_id || user?.filiale_id
+              const selectedFiliale = selectedFilialeId ? filiales.find(f => f.id === selectedFilialeId) : null
+              const isSoftwareProvider = selectedFiliale?.is_software_provider ?? false
+              return isSoftwareProvider ? (
+                <div className="md:col-span-2">
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={createFormData.is_it_department ?? false}
+                      onChange={(e) => setCreateFormData({ ...createFormData, is_it_department: e.target.checked })}
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700"
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300">
+                      Département IT (résolveur de tickets)
+                    </span>
+                  </label>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Les utilisateurs de ce département seront automatiquement notifiés et pourront estimer le temps des tickets.
+                  </p>
+                </div>
+              ) : null
+            })()}
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Siège
@@ -460,6 +609,64 @@ const Departments = () => {
                   placeholder="Description du département"
                 />
               </div>
+              {canSelectFiliale ? (
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Filiale <span className="text-red-500">*</span>
+                  </label>
+                  {loadingFiliales ? (
+                    <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                      Chargement des filiales...
+                    </div>
+                  ) : (
+                    <select
+                      value={editFormData.filiale_id !== undefined ? editFormData.filiale_id : (departmentToEdit.filiale_id || '')}
+                      onChange={(e) => setEditFormData({ ...editFormData, filiale_id: e.target.value ? parseInt(e.target.value) : undefined })}
+                      className="input"
+                      required
+                    >
+                      <option value="">Sélectionner une filiale</option>
+                      {filiales.map((filiale) => (
+                        <option key={filiale.id} value={filiale.id}>
+                          {filiale.name} {filiale.code ? `(${filiale.code})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              ) : (
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Filiale <span className="text-red-500">*</span>
+                  </label>
+                  <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                    {(() => {
+                      const filialeId = editFormData.filiale_id !== undefined ? editFormData.filiale_id : (departmentToEdit.filiale_id || user?.filiale_id)
+                      const filiale = filialeId ? filiales.find(f => f.id === filialeId) : null
+                      
+                      if (filiale) {
+                        return (
+                          <>
+                            {filiale.name}
+                            {filiale.code && ` (${filiale.code})`}
+                          </>
+                        )
+                      }
+                      
+                      if (departmentToEdit.filiale) {
+                        return (
+                          <>
+                            {departmentToEdit.filiale.name}
+                            {departmentToEdit.filiale.code && ` (${departmentToEdit.filiale.code})`}
+                          </>
+                        )
+                      }
+                      
+                      return user?.filiale_id ? '-' : 'Aucune filiale'
+                    })()}
+                  </div>
+                </div>
+              )}
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Siège
@@ -488,6 +695,31 @@ const Departments = () => {
                   <span className="text-sm text-gray-700 dark:text-gray-300">Département actif</span>
                 </label>
               </div>
+              {/* Champ IsITDepartment : uniquement visible pour la filiale fournisseur IT */}
+              {(() => {
+                const selectedFilialeId = editFormData.filiale_id !== undefined ? editFormData.filiale_id : (departmentToEdit.filiale_id || user?.filiale_id)
+                const selectedFiliale = selectedFilialeId ? filiales.find(f => f.id === selectedFilialeId) : null
+                const isSoftwareProvider = selectedFiliale?.is_software_provider || departmentToEdit.filiale?.is_software_provider || false
+                
+                return isSoftwareProvider ? (
+                  <div className="md:col-span-2">
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={editFormData.is_it_department !== undefined ? editFormData.is_it_department : (departmentToEdit.is_it_department || false)}
+                        onChange={(e) => setEditFormData({ ...editFormData, is_it_department: e.target.checked })}
+                        className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700"
+                      />
+                      <span className="text-sm text-gray-700 dark:text-gray-300">
+                        Département IT (résolveur de tickets)
+                      </span>
+                    </label>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Les utilisateurs de ce département seront automatiquement notifiés lors de la création, validation et invalidation de tickets.
+                    </p>
+                  </div>
+                ) : null
+              })()}
             </div>
             <div className="flex justify-end space-x-3 pt-4">
               <button

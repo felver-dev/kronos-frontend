@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { authService } from '../services/authService'
 
 interface User {
@@ -11,6 +12,9 @@ interface User {
   avatar?: string
   permissions?: string[]
   department_id?: number
+  filiale_id?: number
+  filiale_code?: string
+  filiale_name?: string
 }
 
 // Plus de mapping de rôles - on utilise directement le rôle du backend
@@ -30,6 +34,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const navigate = useNavigate()
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [permissionsVersion, setPermissionsVersion] = useState(0) // Version pour forcer le re-render
@@ -60,6 +65,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         avatar: userData.avatar || '',
         permissions: newPermissions,
         department_id: userData.department_id,
+        filiale_id: userData.filiale_id,
+        filiale_code: userData.filiale?.code ?? userData.filiale_code,
+        filiale_name: userData.filiale?.name ?? userData.filiale_name,
       }
       
       // Toujours mettre à jour user et sessionStorage (nom, email, etc. après édition de profil)
@@ -105,10 +113,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             email: (userData?.email as string) || '',
             firstName: (userData?.firstName ?? userData?.first_name) as string || '',
             lastName: (userData?.lastName ?? userData?.last_name) as string || '',
+            username: (userData?.username as string) ?? (userData as any)?.username ?? '',
             role: (userData?.role as string) || '',
             avatar: userData?.avatar as string | undefined,
             permissions: newPermissions,
             department_id: userData?.department_id as number | undefined,
+            filiale_id: userData?.filiale_id as number | undefined,
+            filiale_code: (userData as any)?.filiale?.code ?? (userData as any)?.filiale_code,
+            filiale_name: (userData as any)?.filiale?.name ?? (userData as any)?.filiale_name,
           }
           setUser(updatedUser)
           sessionStorage.setItem('user', JSON.stringify(updatedUser))
@@ -184,49 +196,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
-  // Rafraîchir les permissions automatiquement une seule fois au chargement initial
-  useEffect(() => {
-    if (user && !loading && !hasRefreshedRef.current) {
-      hasRefreshedRef.current = true
-      
-      const refreshPermissions = async () => {
-        try {
-          const userData = await authService.verifyToken() as any
-          
-          const newPermissions = Array.isArray(userData.permissions) 
-            ? [...userData.permissions]
-            : []
-          
-          const updatedUser: User = {
-            id: String(userData.id || userData.ID),
-            email: userData.email || '',
-            firstName: userData.firstName || userData.first_name || '',
-            lastName: userData.lastName || userData.last_name || '',
-            username: userData.username ?? (userData as any)?.username ?? '',
-            role: userData.role || '',
-            avatar: userData.avatar || '',
-            permissions: newPermissions,
-            department_id: userData.department_id,
-          }
-          
-          // Toujours synchroniser user et sessionStorage avec le backend
-          setUser(updatedUser)
-          sessionStorage.setItem('user', JSON.stringify(updatedUser))
-          const permissionsChanged = JSON.stringify(user.permissions) !== JSON.stringify(newPermissions)
-          if (permissionsChanged) {
-            setPermissionsVersion(prev => prev + 1)
-          }
-        } catch (error) {
-          // Ignorer silencieusement les erreurs de rafraîchissement automatique
-        }
-      }
-      
-      // Attendre un peu avant de rafraîchir pour ne pas surcharger au démarrage
-      const timeoutId = setTimeout(refreshPermissions, 1000)
-      return () => clearTimeout(timeoutId)
-    }
-  }, [user?.id, loading]) // Se déclencher uniquement quand l'ID utilisateur change (connexion/déconnexion)
-  
+  // Ne plus appeler /auth/me une deuxième fois au chargement : initAuth le fait déjà.
+  // Évite un second appel (~3,5 s) et accélère l’affichage initial.
   // Réinitialiser le flag quand l'utilisateur se déconnecte
   useEffect(() => {
     if (!user) {
@@ -238,8 +209,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     authService.logout()
     setUser(null)
     setPermissionsVersion(0)
-    // Rediriger vers la page de connexion
-    window.location.href = '/login'
+    // Navigation côté client vers /login (évite le rechargement complet de la page)
+    navigate('/login', { replace: true })
   }
 
   const hasPermission = (permission: string): boolean => {

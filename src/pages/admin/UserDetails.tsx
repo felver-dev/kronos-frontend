@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Mail, Calendar, Shield, Clock, Ticket, Loader2, AlertCircle, HardDrive, BarChart3, CheckCircle, XCircle, Building2, MapPin } from 'lucide-react'
+import { ArrowLeft, Mail, Calendar, Shield, Clock, Ticket, Loader2, AlertCircle, HardDrive, BarChart3, CheckCircle, XCircle, Building2, MapPin, Eye, EyeOff } from 'lucide-react'
 import Modal from '../../components/Modal'
 import EditUserForm from '../../components/forms/EditUserForm'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -21,7 +21,13 @@ const UserDetails = () => {
   const [error, setError] = useState<string | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isToggleActiveModalOpen, setIsToggleActiveModalOpen] = useState(false)
+  const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false)
+  const [resetPasswordValue, setResetPasswordValue] = useState('')
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState('')
+  const [showResetPassword, setShowResetPassword] = useState(false)
+  const [showResetPasswordConfirm, setShowResetPasswordConfirm] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isResetPasswordSubmitting, setIsResetPasswordSubmitting] = useState(false)
   
   // Nouvelles données
   const [assignedTickets, setAssignedTickets] = useState<TicketDTO[]>([])
@@ -35,17 +41,8 @@ const UserDetails = () => {
     loadUser()
   }, [id])
 
-  // Fonction pour formater le rôle pour l'affichage
-  const formatRole = (role: string): string => {
-    const roleMap: Record<string, string> = {
-      'DSI': 'DSI',
-      'RESPONSABLE_IT': 'Responsable IT',
-      'TECHNICIEN_IT': 'Technicien IT',
-      'USER': 'Utilisateur',
-      'CLIENT': 'Client',
-    }
-    return roleMap[role] || role
-  }
+  // Afficher le nom du rôle tel que renvoyé par l'API (configurable par l'organisation)
+  const formatRole = (role: string): string => role || '-'
 
   // Fonction pour charger l'utilisateur
   const loadUser = async () => {
@@ -177,6 +174,34 @@ const UserDetails = () => {
       toast.error(err instanceof Error ? err.message : 'Erreur lors de la modification du statut')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!user) return
+    if (resetPasswordValue.length < 6) {
+      toast.error('Le mot de passe doit contenir au moins 6 caractères')
+      return
+    }
+    if (resetPasswordValue !== resetPasswordConfirm) {
+      toast.error('Les deux mots de passe ne correspondent pas')
+      return
+    }
+    setIsResetPasswordSubmitting(true)
+    try {
+      await userService.resetPassword(user.id, resetPasswordValue)
+      setIsResetPasswordModalOpen(false)
+      setResetPasswordValue('')
+      setResetPasswordConfirm('')
+      setShowResetPassword(false)
+      setShowResetPasswordConfirm(false)
+      toast.success('Mot de passe réinitialisé avec succès')
+    } catch (err) {
+      console.error('Erreur lors de la réinitialisation du mot de passe:', err)
+      toast.error(err instanceof Error ? err.message : 'Erreur lors de la réinitialisation du mot de passe')
+    } finally {
+      setIsResetPasswordSubmitting(false)
     }
   }
 
@@ -611,13 +636,15 @@ const UserDetails = () => {
                   Modifier
                 </button>
               </PermissionGuard>
-              <button 
-                className="w-full btn btn-secondary"
-                disabled
-                title="Fonctionnalité à venir"
-              >
-                Réinitialiser le mot de passe
-              </button>
+              <PermissionGuard permission="users.update">
+                <button
+                  type="button"
+                  onClick={() => setIsResetPasswordModalOpen(true)}
+                  className="w-full btn btn-secondary"
+                >
+                  Réinitialiser le mot de passe
+                </button>
+              </PermissionGuard>
               <PermissionGuard permission="users.update">
                 <button 
                   onClick={() => setIsToggleActiveModalOpen(true)}
@@ -666,6 +693,106 @@ const UserDetails = () => {
           confirmButtonClass={user.is_active ? 'bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600' : 'bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600'}
           isLoading={isSubmitting}
         />
+      )}
+
+      {/* Modal Réinitialiser le mot de passe */}
+      {user && (
+        <Modal
+          isOpen={isResetPasswordModalOpen}
+          onClose={() => {
+            setIsResetPasswordModalOpen(false)
+            setResetPasswordValue('')
+            setResetPasswordConfirm('')
+            setShowResetPassword(false)
+            setShowResetPasswordConfirm(false)
+          }}
+          title="Réinitialiser le mot de passe"
+          size="sm"
+        >
+          <form onSubmit={handleResetPassword} className="space-y-4">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Définir un nouveau mot de passe pour {user.first_name && user.last_name ? `${user.first_name} ${user.last_name}` : user.username}.
+            </p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Nouveau mot de passe <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type={showResetPassword ? 'text' : 'password'}
+                  value={resetPasswordValue}
+                  onChange={(e) => setResetPasswordValue(e.target.value)}
+                  className="input pr-10"
+                  placeholder="Minimum 6 caractères"
+                  minLength={6}
+                  autoComplete="new-password"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowResetPassword(!showResetPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                  aria-label={showResetPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                >
+                  {showResetPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Confirmer le mot de passe <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type={showResetPasswordConfirm ? 'text' : 'password'}
+                  value={resetPasswordConfirm}
+                  onChange={(e) => setResetPasswordConfirm(e.target.value)}
+                  className="input pr-10"
+                  placeholder="Confirmer le mot de passe"
+                  autoComplete="new-password"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowResetPasswordConfirm(!showResetPasswordConfirm)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                  aria-label={showResetPasswordConfirm ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                >
+                  {showResetPasswordConfirm ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
+            <div className="flex justify-end space-x-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsResetPasswordModalOpen(false)
+                  setResetPasswordValue('')
+                  setResetPasswordConfirm('')
+                  setShowResetPassword(false)
+                  setShowResetPasswordConfirm(false)
+                }}
+                className="btn btn-secondary"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={isResetPasswordSubmitting || resetPasswordValue.length < 6 || resetPasswordValue !== resetPasswordConfirm}
+                className="btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isResetPasswordSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
+                    En cours...
+                  </>
+                ) : (
+                  'Réinitialiser'
+                )}
+              </button>
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   )

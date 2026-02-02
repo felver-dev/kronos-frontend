@@ -152,7 +152,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return '#2C6BB3'
   })
 
-  // Appliquer le thème immédiatement au montage et à chaque changement
+  // Appliquer le thème au montage (lecture depuis localStorage / préférence système)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const root = document.documentElement
@@ -161,10 +161,21 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       } else {
         root.classList.remove('dark')
       }
-      // Sauvegarder dans localStorage
       localStorage.setItem('theme', theme)
     }
   }, [theme])
+
+  // Appliquer la classe sur <html> de façon synchrone (évite le décalage barre / contenu)
+  const applyThemeToDOM = (newTheme: Theme) => {
+    if (typeof document === 'undefined') return
+    const root = document.documentElement
+    if (newTheme === 'dark') {
+      root.classList.add('dark')
+    } else {
+      root.classList.remove('dark')
+    }
+    localStorage.setItem('theme', newTheme)
+  }
 
   // Appliquer la couleur principale choisie à la palette CSS (utilisée par Tailwind)
   useEffect(() => {
@@ -177,12 +188,13 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const toggleTheme = () => {
     setThemeState((prevTheme) => {
       const newTheme = prevTheme === 'light' ? 'dark' : 'light'
-      console.log('Toggling theme from', prevTheme, 'to', newTheme)
+      applyThemeToDOM(newTheme)
       return newTheme
     })
   }
 
   const setTheme = (newTheme: Theme) => {
+    applyThemeToDOM(newTheme)
     setThemeState(newTheme)
   }
 

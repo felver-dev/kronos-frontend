@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { settingsService } from '../../services/settingsService'
-import { Bell, Shield, Mail, Save, AlertCircle, Palette } from 'lucide-react'
-import { useTheme } from '../../contexts/ThemeContext'
+import { Bell, Shield, Mail, Save, AlertCircle } from 'lucide-react'
 import { PermissionGuard } from '../../components/PermissionGuard'
 import { AccessDenied } from '../../components/AccessDenied'
 
 const Settings = () => {
   const { hasPermission } = useAuth()
-  const { primaryColor, setPrimaryColor } = useTheme()
   const [activeTab, setActiveTab] = useState('notifications')
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -18,7 +16,6 @@ const Settings = () => {
     { id: 'notifications', name: 'Notifications', icon: Bell },
     { id: 'security', name: 'Sécurité', icon: Shield },
     { id: 'email', name: 'Email', icon: Mail },
-    { id: 'appearance', name: 'Apparence', icon: Palette },
   ]
 
   // Charger les paramètres au montage du composant
@@ -352,87 +349,19 @@ const Settings = () => {
             </div>
           )}
 
-          {/* Onglet Apparence */}
-          {activeTab === 'appearance' && (
-            <div className="card bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm">
-              <div className="p-6 space-y-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-1 flex items-center">
-                      <Palette className="w-5 h-5 mr-2 text-primary-600 dark:text-primary-400" />
-                      Thème & couleur principale
-                    </h2>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      Choisissez la couleur principale utilisée pour les boutons, liens et éléments d&apos;accent.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Couleur principale
-                    </label>
-                    <div className="flex items-center space-x-4">
-                      <input
-                        type="color"
-                        value={primaryColor}
-                        onChange={(e) => setPrimaryColor(e.target.value)}
-                        className="h-10 w-16 rounded border border-gray-300 dark:border-gray-600 bg-transparent cursor-pointer"
-                      />
-                      <div className="flex flex-col">
-                        <span className="text-sm text-gray-700 dark:text-gray-200">
-                          Couleur actuelle : <span className="font-mono">{primaryColor}</span>
-                        </span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          La modification est appliquée instantanément sur toute l&apos;application.
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-start md:items-end space-y-3">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">
-                      Aperçu des composants avec la couleur choisie :
-                    </span>
-                    <div className="flex flex-wrap gap-3">
-                      <button className="btn btn-primary text-sm">
-                        Bouton principal
-                      </button>
-                      <span className="badge bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
-                        Badge primaire
-                      </span>
-                      <span className="text-sm text-primary-600 dark:text-primary-400">
-                        Lien / texte accentué
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-start space-x-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
-                  <AlertCircle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 mt-0.5" />
-                  <p className="text-xs text-yellow-800 dark:text-yellow-200">
-                    La couleur choisie est enregistrée dans ce navigateur uniquement. Pour l&apos;instant, elle n&apos;est pas synchronisée entre vos appareils.
-                  </p>
-                </div>
-              </div>
+          {/* Bouton de sauvegarde */}
+          <PermissionGuard permissions={['settings.update', 'settings.manage']}>
+            <div className="flex justify-end">
+              <button
+                onClick={handleSave}
+                disabled={saving || loading}
+                className="inline-flex items-center px-4 py-2 bg-primary-600 hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 text-white font-medium rounded-lg shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Save className="w-5 h-5 mr-2" />
+                {saving ? 'Enregistrement...' : 'Enregistrer les modifications'}
+              </button>
             </div>
-          )}
-
-          {/* Bouton de sauvegarde (sauf pour Apparence qui a son propre comportement) */}
-          {activeTab !== 'appearance' && (
-            <PermissionGuard permissions={['settings.update', 'settings.manage']}>
-              <div className="flex justify-end">
-                <button
-                  onClick={handleSave}
-                  disabled={saving || loading}
-                  className="inline-flex items-center px-4 py-2 bg-primary-600 hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 text-white font-medium rounded-lg shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Save className="w-5 h-5 mr-2" />
-                  {saving ? 'Enregistrement...' : 'Enregistrer les modifications'}
-                </button>
-              </div>
-            </PermissionGuard>
-          )}
+          </PermissionGuard>
         </div>
       </div>
     </div>

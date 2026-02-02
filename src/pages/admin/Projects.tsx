@@ -658,6 +658,11 @@ const Projects = () => {
             <p className="text-gray-600 dark:text-gray-400">
               Pour supprimer le projet <strong>« {deleteTargetProject.name} »</strong>, saisissez votre nom
               d&apos;utilisateur pour confirmer.
+              {user?.username && (
+                <span className="block mt-2 text-sm font-medium text-gray-800 dark:text-gray-200">
+                  Votre nom d&apos;utilisateur : <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{user.username}</code>
+                </span>
+              )}
             </p>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">

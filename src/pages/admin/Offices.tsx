@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { officeService, OfficeDTO, CreateOfficeRequest, UpdateOfficeRequest } from '../../services/officeService'
+import { filialeService, FilialeDTO } from '../../services/filialeService'
+import { countriesService, type CountryOption } from '../../services/countriesService'
 import { useToastContext } from '../../contexts/ToastContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { PermissionGuard } from '../../components/PermissionGuard'
@@ -7,14 +9,21 @@ import { PermissionDenied } from '../../components/PermissionDenied'
 import { Plus, Edit, Trash2, Loader2, MapPin } from 'lucide-react'
 import Modal from '../../components/Modal'
 import ConfirmModal from '../../components/ConfirmModal'
+import ScrollableSelect from '../../components/ScrollableSelect'
 import { useNavigate } from 'react-router-dom'
 import { AccessDenied } from '../../components/AccessDenied'
 
 const Offices = () => {
   const toast = useToastContext()
-  const { hasPermission } = useAuth()
+  const { hasPermission, user } = useAuth()
   const navigate = useNavigate()
+  
+  // Vérifier si l'utilisateur peut créer/modifier un siège dans n'importe quelle filiale
+  const canSelectFiliale = hasPermission('offices.create_any_filiale') || hasPermission('offices.update_any_filiale')
+  const canViewOffices = hasPermission('offices.view') || hasPermission('offices.view_filiale') || hasPermission('offices.view_all')
   const [offices, setOffices] = useState<OfficeDTO[]>([])
+  const [filiales, setFiliales] = useState<FilialeDTO[]>([])
+  const [loadingFiliales, setLoadingFiliales] = useState(false)
   const [loading, setLoading] = useState(false)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
@@ -28,11 +37,33 @@ const Offices = () => {
     city: '',
     commune: undefined,
     address: undefined,
+    filiale_id: user?.filiale_id,
     longitude: undefined,
     latitude: undefined,
     is_active: true,
   })
   const [editFormData, setEditFormData] = useState<UpdateOfficeRequest>({})
+  const [countriesList, setCountriesList] = useState<CountryOption[]>([])
+  const [citiesList, setCitiesList] = useState<string[]>([])
+  const [editCitiesList, setEditCitiesList] = useState<string[]>([])
+  const [loadingCountries, setLoadingCountries] = useState(false)
+  const [loadingCities, setLoadingCities] = useState(false)
+  const [loadingEditCities, setLoadingEditCities] = useState(false)
+
+  const getFilialePrefix = (filialeId?: number) => {
+    const f = filialeId ? filiales.find(x => x.id === filialeId) : undefined
+    const code = (f?.code || '').toString().trim().toUpperCase()
+    return code ? `${code}-` : ''
+  }
+
+  const stripPrefix = (fullCode: string, prefix: string) => {
+    const fc = (fullCode || '').toString()
+    if (!prefix) return fc
+    if (fc.toUpperCase().startsWith(prefix.toUpperCase()) && fc.length >= prefix.length) {
+      return fc.slice(prefix.length)
+    }
+    return fc
+  }
 
   const loadOffices = async () => {
     setLoading(true)
@@ -48,14 +79,107 @@ const Offices = () => {
     }
   }
 
+  const loadFiliales = async () => {
+    // Charger les filiales pour l'affichage (même si l'utilisateur ne peut pas les sélectionner)
+    setLoadingFiliales(true)
+    try {
+      const data = await filialeService.getActive()
+      setFiliales(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('Erreur lors du chargement des filiales:', error)
+      toast.error('Erreur lors du chargement des filiales')
+    } finally {
+      setLoadingFiliales(false)
+    }
+  }
+
   useEffect(() => {
     // Vérifier l'accès à la page
-    if (!hasPermission('offices.view') && !hasPermission('offices.create') && !hasPermission('offices.update') && !hasPermission('offices.delete')) {
+    if (!canViewOffices && !hasPermission('offices.create') && !hasPermission('offices.update') && !hasPermission('offices.delete')) {
       navigate('/app/dashboard')
       return
     }
     loadOffices()
-  }, [hasPermission, navigate])
+    loadFiliales()
+  }, [canViewOffices, hasPermission, navigate])
+
+  const loadCountries = useCallback(async () => {
+    setLoadingCountries(true)
+    try {
+      const list = await countriesService.fetchCountries()
+      setCountriesList(list)
+    } catch (err) {
+      console.error('Erreur chargement pays:', err)
+      toast.error('Impossible de charger la liste des pays')
+    } finally {
+      setLoadingCountries(false)
+    }
+  }, [toast])
+
+  const loadCitiesForCountry = useCallback(async (countryName: string, countries: CountryOption[]) => {
+    if (!countryName.trim()) {
+      setCitiesList([])
+      return
+    }
+    const nameEn = countries.find((c) => c.name === countryName)?.nameEn ?? countryName
+    setLoadingCities(true)
+    setCitiesList([])
+    try {
+      const cities = await countriesService.fetchCitiesByCountry(nameEn)
+      setCitiesList(cities)
+    } catch (err) {
+      console.error('Erreur chargement villes:', err)
+      setCitiesList([])
+    } finally {
+      setLoadingCities(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isCreateModalOpen && countriesList.length === 0 && !loadingCountries) {
+      loadCountries()
+    }
+  }, [isCreateModalOpen, countriesList.length, loadingCountries, loadCountries])
+
+  useEffect(() => {
+    if (createFormData.country) {
+      loadCitiesForCountry(createFormData.country, countriesList)
+    } else {
+      setCitiesList([])
+    }
+  }, [createFormData.country, countriesList, loadCitiesForCountry])
+
+  useEffect(() => {
+    if (isEditModalOpen && officeToEdit && countriesList.length === 0 && !loadingCountries) {
+      loadCountries()
+    }
+  }, [isEditModalOpen, officeToEdit, countriesList.length, loadingCountries, loadCountries])
+
+  useEffect(() => {
+    const countryName = editFormData.country ?? officeToEdit?.country
+    if (!countryName) {
+      setEditCitiesList([])
+      return
+    }
+    const nameEn = countriesList.find((c) => c.name === countryName)?.nameEn ?? countryName
+    setLoadingEditCities(true)
+    setEditCitiesList([])
+    countriesService
+      .fetchCitiesByCountry(nameEn)
+      .then((cities) => setEditCitiesList(cities))
+      .catch(() => setEditCitiesList([]))
+      .finally(() => setLoadingEditCities(false))
+  }, [editFormData.country, officeToEdit?.country, countriesList])
+
+  // Mettre à jour filiale_id dans le formulaire de création quand user change
+  useEffect(() => {
+    if (!canSelectFiliale && user?.filiale_id && !isCreateModalOpen) {
+      setCreateFormData(prev => ({
+        ...prev,
+        filiale_id: user.filiale_id,
+      }))
+    }
+  }, [canSelectFiliale, user?.filiale_id, isCreateModalOpen])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -70,7 +194,10 @@ const Offices = () => {
     }
     setIsSubmitting(true)
     try {
-      await officeService.create(createFormData)
+      await officeService.create({
+        ...createFormData,
+        // Le code sera généré automatiquement par le backend à partir du nom
+      })
       toast.success('Siège créé avec succès')
       setIsCreateModalOpen(false)
       setCreateFormData({
@@ -79,6 +206,7 @@ const Offices = () => {
         city: '',
         commune: undefined,
         address: undefined,
+        filiale_id: canSelectFiliale ? undefined : (user?.filiale_id),
         longitude: undefined,
         latitude: undefined,
         is_active: true,
@@ -98,12 +226,16 @@ const Offices = () => {
       return
     }
     setOfficeToEdit(office)
+    const filialeId = (canSelectFiliale ? office.filiale_id : (user?.filiale_id || office.filiale_id)) || undefined
+    const prefix = getFilialePrefix(filialeId)
     setEditFormData({
+      code: (office as any).code ? stripPrefix((office as any).code as string, prefix) : undefined,
       name: office.name,
       country: office.country,
       city: office.city,
       commune: office.commune,
       address: office.address,
+      filiale_id: canSelectFiliale ? office.filiale_id : (user?.filiale_id || office.filiale_id),
       longitude: office.longitude,
       latitude: office.latitude,
       is_active: office.is_active,
@@ -122,7 +254,11 @@ const Offices = () => {
     if (!officeToEdit) return
     setIsSubmitting(true)
     try {
-      await officeService.update(officeToEdit.id, editFormData)
+      const payload: UpdateOfficeRequest = { ...editFormData }
+      if (payload.code !== undefined) {
+        payload.code = payload.code?.trim() || undefined
+      }
+      await officeService.update(officeToEdit.id, payload)
       toast.success('Siège mis à jour avec succès')
       setIsEditModalOpen(false)
       setOfficeToEdit(null)
@@ -168,7 +304,7 @@ const Offices = () => {
   }
 
   // Vérifier l'accès à la page
-  if (!hasPermission('offices.view') && !hasPermission('offices.create') && !hasPermission('offices.update') && !hasPermission('offices.delete')) {
+  if (!canViewOffices && !hasPermission('offices.create') && !hasPermission('offices.update') && !hasPermission('offices.delete')) {
     return <AccessDenied />
   }
 
@@ -177,7 +313,7 @@ const Offices = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Sièges</h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">Gérez les sièges de MCI Care CI</p>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">Gérez les sièges</p>
         </div>
         <PermissionGuard permissions={['offices.create']}>
           <button
@@ -196,7 +332,7 @@ const Offices = () => {
             <Loader2 className="w-6 h-6 animate-spin text-primary-600 dark:text-primary-400" />
             <span className="ml-3 text-gray-600 dark:text-gray-400">Chargement des sièges...</span>
           </div>
-        ) : !hasPermission('offices.view') ? (
+        ) : !canViewOffices ? (
           <div className="py-8">
             <PermissionDenied message="Vous n'avez pas la permission de voir la liste des sièges" />
           </div>
@@ -218,6 +354,9 @@ const Offices = () => {
                     Commune
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Filiale
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Localisation
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -231,17 +370,22 @@ const Offices = () => {
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {offices.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={8} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
                       Aucun siège enregistré
                     </td>
                   </tr>
                 ) : (
                   offices.map((office) => (
                     <tr key={office.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-6 py-4">
                         <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                           {office.name}
                         </div>
+                        {office.code && (
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            {office.code}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900 dark:text-gray-100">
@@ -257,6 +401,20 @@ const Offices = () => {
                         <div className="text-sm text-gray-500 dark:text-gray-400">
                           {office.commune || '-'}
                         </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {office.filiale ? (
+                          <div className="text-sm text-gray-900 dark:text-gray-100">
+                            {office.filiale.name}
+                            {office.filiale.code && (
+                              <span className="text-gray-500 dark:text-gray-400 ml-1">
+                                ({office.filiale.code})
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {office.latitude && office.longitude ? (
@@ -316,11 +474,13 @@ const Offices = () => {
         onClose={() => {
           setIsCreateModalOpen(false)
           setCreateFormData({
+            code: '',
             name: '',
             country: '',
             city: '',
             commune: undefined,
             address: undefined,
+            filiale_id: canSelectFiliale ? undefined : (user?.filiale_id),
             longitude: undefined,
             latitude: undefined,
             is_active: true,
@@ -348,27 +508,47 @@ const Offices = () => {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Pays <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                required
+              <ScrollableSelect
                 value={createFormData.country}
-                onChange={(e) => setCreateFormData({ ...createFormData, country: e.target.value })}
-                className="input"
-                placeholder="Ex: Côte d'Ivoire"
+                onChange={(name) => setCreateFormData({ ...createFormData, country: name, city: '' })}
+                options={countriesList.map((c) => ({ value: c.name, label: c.name }))}
+                placeholder="Sélectionner un pays"
+                loading={loadingCountries}
+                allowEmpty
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Ville <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                required
-                value={createFormData.city}
-                onChange={(e) => setCreateFormData({ ...createFormData, city: e.target.value })}
-                className="input"
-                placeholder="Ex: Abidjan"
-              />
+              {loadingCities ? (
+                <div className="input flex items-center text-gray-500 dark:text-gray-400">
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  Chargement des villes...
+                </div>
+              ) : citiesList.length > 0 ? (
+                <ScrollableSelect
+                  value={createFormData.city}
+                  onChange={(city) => setCreateFormData({ ...createFormData, city })}
+                  options={[
+                    ...(createFormData.city && !citiesList.includes(createFormData.city)
+                      ? [{ value: createFormData.city, label: createFormData.city }]
+                      : []),
+                    ...citiesList.map((city) => ({ value: city, label: city })),
+                  ]}
+                  placeholder="Sélectionner une ville"
+                  allowEmpty
+                />
+              ) : (
+                <input
+                  type="text"
+                  required
+                  value={createFormData.city}
+                  onChange={(e) => setCreateFormData({ ...createFormData, city: e.target.value })}
+                  className="input"
+                  placeholder="Ex: Abidjan"
+                />
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -394,6 +574,54 @@ const Offices = () => {
                 placeholder="Adresse complète du siège"
               />
             </div>
+            {canSelectFiliale ? (
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Filiale
+                </label>
+                {loadingFiliales ? (
+                  <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                    Chargement des filiales...
+                  </div>
+                ) : (
+                  <select
+                    value={createFormData.filiale_id || ''}
+                    onChange={(e) => setCreateFormData({ ...createFormData, filiale_id: e.target.value ? parseInt(e.target.value) : undefined })}
+                    className="input"
+                  >
+                    <option value="">Aucune filiale</option>
+                    {filiales.map((filiale) => (
+                      <option key={filiale.id} value={filiale.id}>
+                        {filiale.name} {filiale.code ? `(${filiale.code})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            ) : (
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Filiale
+                </label>
+                <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                  {(() => {
+                    const filialeId = createFormData.filiale_id || user?.filiale_id
+                    const filiale = filialeId ? filiales.find(f => f.id === filialeId) : null
+                    
+                    if (filiale) {
+                      return (
+                        <>
+                          {filiale.name}
+                          {filiale.code && ` (${filiale.code})`}
+                        </>
+                      )
+                    }
+                    
+                    return user?.filiale_id ? '-' : 'Aucune filiale'
+                  })()}
+                </div>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Latitude
@@ -464,6 +692,21 @@ const Offices = () => {
         >
           <form onSubmit={handleUpdate} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Code (optionnel)
+                </label>
+                <input
+                  type="text"
+                  value={editFormData.code !== undefined ? (editFormData.code || '') : (officeToEdit.code || '')}
+                  onChange={(e) => setEditFormData({ ...editFormData, code: e.target.value || undefined })}
+                  className="input w-full"
+                  placeholder="Ex: SIEGE-ABJ"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Laisser vide pour conserver le code actuel ou générer un nouveau code à partir du nom
+                </p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Nom du siège <span className="text-red-500">*</span>
@@ -481,27 +724,50 @@ const Offices = () => {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Pays <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  required
-                  value={editFormData.country || officeToEdit.country}
-                  onChange={(e) => setEditFormData({ ...editFormData, country: e.target.value })}
-                  className="input"
-                  placeholder="Ex: Côte d'Ivoire"
+                <ScrollableSelect
+                  value={editFormData.country !== undefined ? editFormData.country : (officeToEdit.country || '')}
+                  onChange={(name) => setEditFormData({ ...editFormData, country: name, city: '' })}
+                  options={countriesList.map((c) => ({ value: c.name, label: c.name }))}
+                  placeholder="Sélectionner un pays"
+                  loading={loadingCountries}
+                  allowEmpty
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Ville <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  required
-                  value={editFormData.city || officeToEdit.city}
-                  onChange={(e) => setEditFormData({ ...editFormData, city: e.target.value })}
-                  className="input"
-                  placeholder="Ex: Abidjan"
-                />
+                {loadingEditCities ? (
+                  <div className="input flex items-center text-gray-500 dark:text-gray-400">
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    Chargement des villes...
+                  </div>
+                ) : editCitiesList.length > 0 ? (
+                  <ScrollableSelect
+                    value={editFormData.city !== undefined ? editFormData.city : (officeToEdit.city || '')}
+                    onChange={(city) => setEditFormData({ ...editFormData, city })}
+                    options={[
+                      ...((() => {
+                        const currentCity = editFormData.city !== undefined ? editFormData.city : (officeToEdit.city || '')
+                        return currentCity && !editCitiesList.includes(currentCity)
+                          ? [{ value: currentCity, label: currentCity }]
+                          : []
+                      })()),
+                      ...editCitiesList.map((city) => ({ value: city, label: city })),
+                    ]}
+                    placeholder="Sélectionner une ville"
+                    allowEmpty
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    required
+                    value={editFormData.city !== undefined ? editFormData.city : (officeToEdit.city || '')}
+                    onChange={(e) => setEditFormData({ ...editFormData, city: e.target.value })}
+                    className="input"
+                    placeholder="Ex: Abidjan"
+                  />
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -527,6 +793,63 @@ const Offices = () => {
                   placeholder="Adresse complète du siège"
                 />
               </div>
+              {canSelectFiliale ? (
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Filiale
+                  </label>
+                  {loadingFiliales ? (
+                    <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                      Chargement des filiales...
+                    </div>
+                  ) : (
+                    <select
+                      value={editFormData.filiale_id !== undefined ? editFormData.filiale_id : (officeToEdit.filiale_id || '')}
+                      onChange={(e) => setEditFormData({ ...editFormData, filiale_id: e.target.value ? parseInt(e.target.value) : undefined })}
+                      className="input"
+                    >
+                      <option value="">Aucune filiale</option>
+                      {filiales.map((filiale) => (
+                        <option key={filiale.id} value={filiale.id}>
+                          {filiale.name} {filiale.code ? `(${filiale.code})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              ) : (
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Filiale
+                  </label>
+                  <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                    {(() => {
+                      const filialeId = editFormData.filiale_id !== undefined ? editFormData.filiale_id : (officeToEdit.filiale_id || user?.filiale_id)
+                      const filiale = filialeId ? filiales.find(f => f.id === filialeId) : null
+                      
+                      if (filiale) {
+                        return (
+                          <>
+                            {filiale.name}
+                            {filiale.code && ` (${filiale.code})`}
+                          </>
+                        )
+                      }
+                      
+                      if (officeToEdit.filiale) {
+                        return (
+                          <>
+                            {officeToEdit.filiale.name}
+                            {officeToEdit.filiale.code && ` (${officeToEdit.filiale.code})`}
+                          </>
+                        )
+                      }
+                      
+                      return user?.filiale_id ? '-' : 'Aucune filiale'
+                    })()}
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Latitude

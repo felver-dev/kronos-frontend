@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ShoppingCart, AlertTriangle, Clock, ExternalLink, Loader2, RefreshCw } from 'lucide-react'
+import { ShoppingCart, AlertTriangle, Clock, ExternalLink, Loader2, RefreshCw, FileText } from 'lucide-react'
 import { ticketService, TicketDTO } from '../services/ticketService'
+import { ticketInternalService, TicketInternalDTO } from '../services/ticketInternalService'
 
 const formatTime = (totalMinutes?: number | null): string => {
   if (totalMinutes == null || totalMinutes < 0) return '—'
@@ -30,6 +31,7 @@ const statusLabels: Record<string, string> = {
   ouvert: 'Ouvert',
   en_cours: 'En cours',
   en_attente: 'En attente',
+  resolu: 'Résolu',
   cloture: 'Clôturé',
 }
 
@@ -40,23 +42,34 @@ const priorityLabels: Record<string, string> = {
   critical: 'Critique',
 }
 
+const limit = 50
+
 const MonPanier = () => {
   const [loading, setLoading] = useState(true)
   const [tickets, setTickets] = useState<TicketDTO[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const limit = 50
+  const [ticketInternes, setTicketInternes] = useState<TicketInternalDTO[]>([])
+  const [totalInternes, setTotalInternes] = useState(0)
+  const [pageInternes, setPageInternes] = useState(1)
 
   const load = async () => {
     setLoading(true)
     try {
-      const r = await ticketService.getPanier(page, limit)
+      const [r, rInternes] = await Promise.all([
+        ticketService.getPanier(page, limit),
+        ticketInternalService.getPanier(pageInternes, limit),
+      ])
       setTickets(r.tickets ?? [])
       setTotal(r.pagination?.total ?? 0)
+      setTicketInternes(rInternes.tickets ?? [])
+      setTotalInternes(rInternes.pagination?.total ?? 0)
     } catch (e) {
       console.error('Erreur chargement panier:', e)
       setTickets([])
       setTotal(0)
+      setTicketInternes([])
+      setTotalInternes(0)
     } finally {
       setLoading(false)
     }
@@ -64,10 +77,12 @@ const MonPanier = () => {
 
   useEffect(() => {
     load()
-  }, [page])
+  }, [page, pageInternes])
 
   const withAlerte = tickets.filter((t) => getAlerte(t) !== null)
   const totalPages = Math.max(1, Math.ceil(total / limit))
+  const totalPagesInternes = Math.max(1, Math.ceil(totalInternes / limit))
+  const hasAny = tickets.length > 0 || ticketInternes.length > 0
 
   return (
     <div className="space-y-6">
@@ -78,7 +93,7 @@ const MonPanier = () => {
             Mon panier
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Tickets qui vous sont assignés et non clôturés. Ils disparaissent du panier à la clôture.
+            Tickets et tickets internes qui vous sont assignés et non clôturés. Ils disparaissent du panier à la clôture.
           </p>
         </div>
         <button
@@ -123,18 +138,22 @@ const MonPanier = () => {
         <div className="flex items-center justify-center py-16">
           <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
         </div>
-      ) : tickets.length === 0 ? (
+      ) : !hasAny ? (
         <div className="card text-center py-16">
           <ShoppingCart className="w-16 h-16 mx-auto text-gray-400 dark:text-gray-500 mb-4" />
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Panier vide</h2>
           <p className="text-gray-600 dark:text-gray-400 max-w-md mx-auto">
-            Aucun ticket ne vous est assigné pour le moment. Dès qu’un ticket vous sera assigné, il apparaîtra ici.
+            Aucun ticket ni ticket interne ne vous est assigné pour le moment. Dès qu’un ticket vous sera assigné, il apparaîtra ici.
             Une fois un ticket clôturé, il disparaît du panier.
           </p>
         </div>
       ) : (
         <>
+          {tickets.length > 0 && (
           <div className="card overflow-hidden">
+            <h2 className="px-4 py-3 text-lg font-semibold text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700">
+              Tickets
+            </h2>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
@@ -242,8 +261,119 @@ const MonPanier = () => {
               </table>
             </div>
           </div>
+          )}
 
-          {totalPages > 1 && (
+          {ticketInternes.length > 0 && (
+          <div className="card overflow-hidden">
+            <h2 className="px-4 py-3 text-lg font-semibold text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+              Tickets internes
+            </h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-800/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Code / Titre
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Statut
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Priorité
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Département / Filiale
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Voir
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {ticketInternes.map((t) => (
+                    <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="font-mono text-sm text-gray-900 dark:text-gray-100">{t.code}</div>
+                        <div className="text-sm text-gray-600 dark:text-gray-400 truncate max-w-[220px]" title={t.title}>
+                          {t.title}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                            t.status === 'en_cours'
+                              ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200'
+                              : t.status === 'en_attente'
+                                ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200'
+                                : t.status === 'resolu'
+                                  ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200'
+                                  : t.status === 'ouvert'
+                                    ? 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
+                                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                          }`}
+                        >
+                          {statusLabels[t.status] ?? t.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                            t.priority === 'critical'
+                              ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200'
+                              : t.priority === 'high'
+                                ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200'
+                                : t.priority === 'medium'
+                                  ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200'
+                                  : 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200'
+                          }`}
+                        >
+                          {priorityLabels[t.priority ?? 'medium'] ?? t.priority}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                        {t.department?.name ?? '—'} / {t.filiale?.name ?? '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Link
+                          to={`/app/ticket-internes/${t.id}`}
+                          className="inline-flex items-center gap-1 text-primary-600 dark:text-primary-400 hover:underline text-sm"
+                        >
+                          Voir <ExternalLink className="w-4 h-4" />
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {totalPagesInternes > 1 && (
+              <div className="flex justify-center gap-2 py-3 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={() => setPageInternes((p) => Math.max(1, p - 1))}
+                  disabled={pageInternes <= 1}
+                  className="btn btn-secondary text-sm disabled:opacity-50"
+                >
+                  Précédent
+                </button>
+                <span className="flex items-center px-4 text-gray-600 dark:text-gray-400 text-sm">
+                  Page {pageInternes} / {totalPagesInternes}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPageInternes((p) => Math.min(totalPagesInternes, p + 1))}
+                  disabled={pageInternes >= totalPagesInternes}
+                  className="btn btn-secondary text-sm disabled:opacity-50"
+                >
+                  Suivant
+                </button>
+              </div>
+            )}
+          </div>
+          )}
+
+          {totalPages > 1 && tickets.length > 0 && (
             <div className="flex justify-center gap-2">
               <button
                 type="button"
@@ -271,5 +401,6 @@ const MonPanier = () => {
     </div>
   )
 }
+
 
 export default MonPanier

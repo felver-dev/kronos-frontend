@@ -31,92 +31,29 @@ const ForgotPassword = () => {
       <div className="hidden lg:flex lg:w-1/3 bg-gradient-to-br from-primary-50 via-primary-100 to-primary-200 p-12 flex-col justify-center relative overflow-hidden">
         {/* Bulles décoratives */}
         <div className="absolute inset-0 overflow-hidden">
-          <div 
-            className="absolute top-16 left-16 w-32 h-32 bg-primary-300/60 rounded-full blur-lg" 
-            style={{ 
-              animation: 'float 8s ease-in-out infinite',
-              animationDelay: '0s'
-            }}
-          ></div>
-          <div 
-            className="absolute top-32 right-24 w-28 h-28 bg-primary-400/50 rounded-full blur-lg" 
-            style={{ 
-              animation: 'floatSlow 12s ease-in-out infinite',
-              animationDelay: '1s'
-            }}
-          ></div>
-          <div 
-            className="absolute bottom-40 left-24 w-36 h-36 bg-primary-300/70 rounded-full blur-lg" 
-            style={{ 
-              animation: 'floatFast 6s ease-in-out infinite',
-              animationDelay: '0.5s'
-            }}
-          ></div>
-          <div 
-            className="absolute bottom-24 right-16 w-30 h-30 bg-primary-400/55 rounded-full blur-lg" 
-            style={{ 
-              animation: 'float 8s ease-in-out infinite',
-              animationDelay: '2s'
-            }}
-          ></div>
-          <div 
-            className="absolute top-1/3 right-1/4 w-24 h-24 bg-primary-300/50 rounded-full blur-lg" 
-            style={{ 
-              animation: 'floatSlow 12s ease-in-out infinite',
-              animationDelay: '1.5s'
-            }}
-          ></div>
-          <div 
-            className="absolute bottom-1/3 left-1/3 w-26 h-26 bg-primary-400/60 rounded-full blur-lg" 
-            style={{ 
-              animation: 'floatFast 6s ease-in-out infinite',
-              animationDelay: '0.8s'
-            }}
-          ></div>
-          <div 
-            className="absolute top-2/3 left-1/5 w-20 h-20 bg-primary-300/50 rounded-full blur-lg" 
-            style={{ 
-              animation: 'float 8s ease-in-out infinite',
-              animationDelay: '2.5s'
-            }}
-          ></div>
-          <div 
-            className="absolute top-1/4 left-1/2 w-22 h-22 bg-primary-400/55 rounded-full blur-lg" 
-            style={{ 
-              animation: 'floatSlow 12s ease-in-out infinite',
-              animationDelay: '1.2s'
-            }}
-          ></div>
-
-          {/* Petites bulles supplémentaires */}
-          <div 
-            className="absolute top-9 right-14 w-9 h-9 bg-primary-300/55 rounded-full blur-md" 
-            style={{ 
-              animation: 'floatFast 7s ease-in-out infinite',
-              animationDelay: '1.4s'
-            }}
-          ></div>
-          <div 
-            className="absolute bottom-12 left-9 w-7 h-7 bg-primary-400/60 rounded-full blur-sm" 
-            style={{ 
-              animation: 'floatSlow 11s ease-in-out infinite',
-              animationDelay: '2.0s'
-            }}
-          ></div>
-          <div 
-            className="absolute top-1/2 left-12 w-6 h-6 bg-primary-300/60 rounded-full blur-sm" 
-            style={{ 
-              animation: 'float 9s ease-in-out infinite',
-              animationDelay: '0.6s'
-            }}
-          ></div>
-          <div 
-            className="absolute bottom-1/4 right-7 w-8 h-8 bg-primary-400/70 rounded-full blur-sm" 
-            style={{ 
-              animation: 'floatFast 5s ease-in-out infinite',
-              animationDelay: '1.2s'
-            }}
-          ></div>
+          <div className="absolute top-16 left-16 w-32 h-32 bg-primary-300/60 rounded-full blur-lg" style={{ animation: 'float 4s ease-in-out infinite', animationDelay: '0s' }}></div>
+          <div className="absolute top-32 right-24 w-28 h-28 bg-primary-400/50 rounded-full blur-lg" style={{ animation: 'floatSlow 6s ease-in-out infinite', animationDelay: '0.5s' }}></div>
+          <div className="absolute bottom-40 left-24 w-36 h-36 bg-primary-300/70 rounded-full blur-lg" style={{ animation: 'floatFast 3s ease-in-out infinite', animationDelay: '0.25s' }}></div>
+          <div className="absolute bottom-24 right-16 w-30 h-30 bg-primary-400/55 rounded-full blur-lg" style={{ animation: 'float 4s ease-in-out infinite', animationDelay: '1s' }}></div>
+          <div className="absolute top-1/3 right-1/4 w-24 h-24 bg-primary-300/50 rounded-full blur-lg" style={{ animation: 'floatSlow 6s ease-in-out infinite', animationDelay: '0.75s' }}></div>
+          <div className="absolute bottom-1/3 left-1/3 w-26 h-26 bg-primary-400/60 rounded-full blur-lg" style={{ animation: 'floatFast 3s ease-in-out infinite', animationDelay: '0.4s' }}></div>
+          <div className="absolute top-2/3 left-1/5 w-20 h-20 bg-primary-300/50 rounded-full blur-lg" style={{ animation: 'float 4s ease-in-out infinite', animationDelay: '1.25s' }}></div>
+          <div className="absolute top-1/4 left-1/2 w-22 h-22 bg-primary-400/55 rounded-full blur-lg" style={{ animation: 'floatSlow 6s ease-in-out infinite', animationDelay: '0.6s' }}></div>
+          <div className="absolute top-1/2 right-1/3 w-28 h-28 bg-primary-300/55 rounded-full blur-lg" style={{ animation: 'float 4s ease-in-out infinite', animationDelay: '0.2s' }}></div>
+          <div className="absolute bottom-1/2 left-1/4 w-24 h-24 bg-primary-400/50 rounded-full blur-lg" style={{ animation: 'floatFast 3s ease-in-out infinite', animationDelay: '0.9s' }}></div>
+          <div className="absolute top-20 right-1/2 w-20 h-20 bg-primary-300/60 rounded-full blur-lg" style={{ animation: 'floatSlow 6s ease-in-out infinite', animationDelay: '1.5s' }}></div>
+          <div className="absolute bottom-32 right-1/3 w-22 h-22 bg-primary-400/55 rounded-full blur-lg" style={{ animation: 'float 4s ease-in-out infinite', animationDelay: '0.3s' }}></div>
+          <div className="absolute top-1/4 left-1/4 w-18 h-18 bg-primary-300/50 rounded-full blur-lg" style={{ animation: 'floatFast 3s ease-in-out infinite', animationDelay: '1.1s' }}></div>
+          {/* Petites bulles */}
+          <div className="absolute top-9 right-14 w-9 h-9 bg-primary-300/55 rounded-full blur-md" style={{ animation: 'floatFast 3.5s ease-in-out infinite', animationDelay: '0.9s' }}></div>
+          <div className="absolute bottom-12 left-9 w-7 h-7 bg-primary-400/60 rounded-full blur-sm" style={{ animation: 'floatSlow 5.5s ease-in-out infinite', animationDelay: '1s' }}></div>
+          <div className="absolute top-1/2 left-12 w-6 h-6 bg-primary-300/60 rounded-full blur-sm" style={{ animation: 'float 4.5s ease-in-out infinite', animationDelay: '0.35s' }}></div>
+          <div className="absolute bottom-1/4 right-7 w-8 h-8 bg-primary-400/70 rounded-full blur-sm" style={{ animation: 'floatFast 2.5s ease-in-out infinite', animationDelay: '0.55s' }}></div>
+          <div className="absolute top-1/3 right-8 w-9 h-9 bg-primary-300/55 rounded-full blur-md" style={{ animation: 'float 4s ease-in-out infinite', animationDelay: '1.6s' }}></div>
+          <div className="absolute bottom-1/3 left-12 w-8 h-8 bg-primary-400/60 rounded-full blur-md" style={{ animation: 'floatSlow 5s ease-in-out infinite', animationDelay: '0.8s' }}></div>
+          <div className="absolute top-3/4 right-16 w-7 h-7 bg-primary-300/50 rounded-full blur-md" style={{ animation: 'floatFast 3s ease-in-out infinite', animationDelay: '1.3s' }}></div>
+          <div className="absolute top-12 left-1/2 w-6 h-6 bg-primary-400/65 rounded-full blur-md" style={{ animation: 'float 4s ease-in-out infinite', animationDelay: '0.15s' }}></div>
+          <div className="absolute bottom-20 right-12 w-9 h-9 bg-primary-300/55 rounded-full blur-md" style={{ animation: 'floatSlow 5.5s ease-in-out infinite', animationDelay: '0.45s' }}></div>
         </div>
         
         {/* Contenu */}
@@ -149,15 +86,11 @@ const ForgotPassword = () => {
         <div className="w-full max-w-md">
           {/* Logo */}
           <div className="flex justify-center mb-8">
-            <div className="relative">
-              <div className="w-24 h-24 bg-gradient-to-br from-primary-600 to-primary-700 rounded-2xl flex flex-col items-center justify-center shadow-lg shadow-primary-500/30 transform transition-transform hover:scale-105">
-                <div className="text-white text-center">
-                  <div className="text-lg font-bold leading-tight">MCI</div>
-                  <div className="text-xs font-semibold leading-tight mt-0.5 opacity-90">CARE CI</div>
-                </div>
-              </div>
-              <div className="absolute -inset-1 bg-gradient-to-br from-primary-400 to-primary-600 rounded-2xl opacity-20 blur-sm -z-10"></div>
-            </div>
+            <img
+              src="/logo-mci-care-ci.png"
+              alt="Logo"
+              className="h-20 w-auto max-w-[260px] object-contain"
+            />
           </div>
 
           {success ? (

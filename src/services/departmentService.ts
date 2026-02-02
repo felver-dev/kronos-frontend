@@ -1,14 +1,19 @@
 import { apiRequest, publicApiRequest } from '../config/api'
 import { OfficeDTO } from './officeService'
 
+import { FilialeDTO } from './filialeService'
+
 export interface DepartmentDTO {
   id: number
   name: string
   code: string
   description?: string
+  filiale_id?: number
+  filiale?: FilialeDTO
   office_id?: number
   office?: OfficeDTO
   is_active: boolean
+  is_it_department: boolean
   created_at: string
   updated_at: string
 }
@@ -17,16 +22,20 @@ export interface CreateDepartmentRequest {
   name: string
   code: string
   description?: string
+  filiale_id: number
   office_id?: number
   is_active?: boolean
+  is_it_department?: boolean
 }
 
 export interface UpdateDepartmentRequest {
   name?: string
   code?: string
   description?: string
+  filiale_id?: number
   office_id?: number
   is_active?: boolean
+  is_it_department?: boolean
 }
 
 export const departmentService = {
@@ -73,6 +82,11 @@ export const departmentService = {
   // Récupérer les départements d'un siège
   getByOfficeId: async (officeId: number): Promise<DepartmentDTO[]> => {
     return apiRequest<DepartmentDTO[]>(`/departments/office/${officeId}`)
+  },
+
+  // Récupérer les départements actifs d'une filiale
+  getByFilialeId: async (filialeId: number): Promise<DepartmentDTO[]> => {
+    return apiRequest<DepartmentDTO[]>(`/departments/filiale/${filialeId}`)
   },
 
   // Récupérer uniquement les départements actifs (route publique, sans authentification)

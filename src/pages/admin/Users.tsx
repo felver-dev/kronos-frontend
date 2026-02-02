@@ -54,7 +54,7 @@ const Users = () => {
   // Charger les utilisateurs au montage
   useEffect(() => {
     // Vérifier les permissions avant de charger les données
-    if (!hasPermission('users.view_all') && !hasPermission('users.view_team') && !hasPermission('users.view_own')) {
+    if (!hasPermission('users.view_all') && !hasPermission('users.view_filiale') && !hasPermission('users.view_team') && !hasPermission('users.view_own') && !hasPermission('users.create')) {
       setError('Vous n\'avez pas la permission de voir les utilisateurs')
       setLoading(false)
       return
@@ -85,17 +85,8 @@ const Users = () => {
     return () => window.removeEventListener('focus', handleFocus)
   }, [location.pathname])
 
-  // Fonction pour formater le rôle pour l'affichage
-  const formatRole = (role: string): string => {
-    const roleMap: Record<string, string> = {
-      'DSI': 'DSI',
-      'RESPONSABLE_IT': 'Responsable IT',
-      'TECHNICIEN_IT': 'Technicien IT',
-      'USER': 'Utilisateur',
-      'CLIENT': 'Client',
-    }
-    return roleMap[role] || role
-  }
+  // Afficher le nom du rôle tel que renvoyé par l'API (configurable par l'organisation)
+  const formatRole = (role: string): string => role || '-'
 
   // Fonction pour formater la date
   const formatDate = (dateString?: string): string => {
@@ -250,7 +241,7 @@ const Users = () => {
   }, [itemsPerPage])
 
   // Vérifier les permissions avant d'afficher la page
-  if (!hasPermission('users.view_all') && !hasPermission('users.view_team') && !hasPermission('users.view_own')) {
+  if (!hasPermission('users.view_all') && !hasPermission('users.view_filiale') && !hasPermission('users.view_team') && !hasPermission('users.view_own') && !hasPermission('users.create')) {
     return <AccessDenied message="Vous n'avez pas la permission de voir les utilisateurs" />
   }
 

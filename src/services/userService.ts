@@ -7,6 +7,7 @@ export interface CreateUserRequest {
   first_name?: string
   last_name?: string
   department_id?: number
+  filiale_id?: number
   role_id: number
 }
 
@@ -18,6 +19,7 @@ export interface UserDTO {
   first_name?: string
   last_name?: string
   department_id?: number
+  filiale_id?: number
   permissions?: string[]
   department?: {
     id: number
@@ -40,6 +42,15 @@ export interface UserDTO {
     created_at: string
     updated_at: string
   }
+  filiale?: {
+    id: number
+    code: string
+    name: string
+    country?: string
+    city?: string
+    is_active: boolean
+    is_software_provider: boolean
+  }
   avatar?: string
   role: string
   is_active: boolean
@@ -55,6 +66,7 @@ export interface UpdateUserRequest {
   last_name?: string
   phone?: string
   department_id?: number | null
+  filiale_id?: number | null
   role_id?: number
   is_active?: boolean
 }
@@ -71,6 +83,9 @@ export interface RoleDTO {
 export const userService = {
   getAll: async (): Promise<UserDTO[]> => {
     return apiRequest<UserDTO[]>('/users')
+  },
+  getForTicketCreation: async (): Promise<UserDTO[]> => {
+    return apiRequest<UserDTO[]>('/users/for-ticket-creation')
   },
   getById: async (id: number): Promise<UserDTO> => {
     return apiRequest<UserDTO>(`/users/${id}`)
@@ -95,9 +110,17 @@ export const userService = {
       cleanData.role_id = data.role_id
     }
     if (data.is_active !== undefined) cleanData.is_active = data.is_active
-    // Toujours envoyer department_id (peut être null pour retirer l'utilisateur d'un département)
+    // Envoyer department_id seulement s'il est défini et non null, ou s'il est explicitement null pour retirer l'utilisateur d'un département
+    // Ne pas envoyer si undefined pour ne pas modifier le département existant
     if (data.department_id !== undefined) {
+      // Si c'est null, c'est une intention explicite de retirer le département
+      // Si c'est un nombre, c'est une intention d'assigner un département
       cleanData.department_id = data.department_id
+    }
+    // Si department_id est undefined, ne pas l'inclure dans la requête
+    // Toujours envoyer filiale_id (peut être null pour retirer l'utilisateur d'une filiale)
+    if (data.filiale_id !== undefined) {
+      cleanData.filiale_id = data.filiale_id
     }
 
     console.log('Données envoyées pour la mise à jour:', cleanData)
@@ -119,6 +142,13 @@ export const userService = {
     return apiRequest<void>(`/users/${id}/password`, {
       method: 'PUT',
       body: JSON.stringify(data),
+    })
+  },
+  /** Réinitialisation du mot de passe par un admin (sans ancien mot de passe). Nécessite users.update */
+  resetPassword: async (id: number, newPassword: string): Promise<void> => {
+    return apiRequest<void>(`/users/${id}/reset-password`, {
+      method: 'PUT',
+      body: JSON.stringify({ new_password: newPassword }),
     })
   },
 

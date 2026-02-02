@@ -1,13 +1,14 @@
 import { apiRequest } from '../config/api'
 
+/** Répartition par sous-période, alignée sur les statuts en base : ouvert, en_cours, en_attente, resolu, cloture */
 export interface PeriodBreakdownDTO {
   date: string
   count: number
-  created?: number
-  closed?: number
+  open?: number
   in_progress?: number
   pending?: number
-  open?: number
+  resolved?: number
+  closed?: number
 }
 
 export interface TicketCountReportDTO {
@@ -72,6 +73,15 @@ export interface KnowledgeReportDTO {
   by_category: Record<string, number>
 }
 
+/** Stats tickets internes (rempli seulement si l'utilisateur a les permissions tickets_internes) */
+export interface TicketInternalStatsDTO {
+  total: number
+  by_status: Record<string, number>
+  by_priority?: Record<string, number>
+  open: number
+  closed: number
+}
+
 export interface DashboardDTO {
   tickets: {
     total: number
@@ -95,26 +105,40 @@ export interface DashboardDTO {
     by_status: Record<string, number>
     by_category: Record<string, number>
   }
+  /** Heures travaillées (API uniquement, non affichées au board) */
   worked_hours?: {
     total_minutes: number
     total_hours: number
     period: string
   }
+  /** Message optionnel (ex: aucun département associé au compte) */
+  message?: string
+  /** Stats tickets internes (présent seulement si l'utilisateur a une permission tickets_internes) */
+  ticket_internes?: TicketInternalStatsDTO
+}
+
+/** Périmètre du tableau de bord : department | filiale | global (pour filtrer les données) */
+export type ReportScope = 'department' | 'filiale' | 'global'
+
+function scopeQuery(scope?: ReportScope): string {
+  return scope ? `&scope=${encodeURIComponent(scope)}` : ''
 }
 
 export const reportsService = {
-  getDashboard: (period: string) =>
-    apiRequest<DashboardDTO>(`/reports/dashboard?period=${encodeURIComponent(period)}`),
-  getTicketCountReport: (period: string) =>
-    apiRequest<TicketCountReportDTO>(`/reports/tickets/count?period=${encodeURIComponent(period)}`),
-  getTicketTypeDistribution: () => apiRequest<TicketTypeDistributionDTO>(`/reports/tickets/distribution`),
-  getAverageResolutionTime: () => apiRequest<AverageResolutionTimeDTO>(`/reports/tickets/average-resolution-time`),
-  getWorkloadByAgent: (period: string) =>
-    apiRequest<WorkloadByAgentDTO[]>(`/reports/tickets/by-agent?period=${encodeURIComponent(period)}`),
-  getSlaCompliance: (period: string) =>
-    apiRequest<SLAComplianceReportDTO>(`/reports/sla/compliance?period=${encodeURIComponent(period)}`),
-  getAssetSummary: (period: string) =>
-    apiRequest<AssetReportDTO>(`/reports/assets/summary?period=${encodeURIComponent(period)}`),
-  getKnowledgeSummary: (period: string) =>
-    apiRequest<KnowledgeReportDTO>(`/reports/knowledge/summary?period=${encodeURIComponent(period)}`),
+  getDashboard: (period: string, scope?: ReportScope) =>
+    apiRequest<DashboardDTO>(`/reports/dashboard?period=${encodeURIComponent(period)}${scopeQuery(scope)}`),
+  getTicketCountReport: (period: string, scope?: ReportScope) =>
+    apiRequest<TicketCountReportDTO>(`/reports/tickets/count?period=${encodeURIComponent(period)}${scopeQuery(scope)}`),
+  getTicketTypeDistribution: (scope?: ReportScope) =>
+    apiRequest<TicketTypeDistributionDTO>(`/reports/tickets/distribution${scope ? `?scope=${encodeURIComponent(scope)}` : ''}`),
+  getAverageResolutionTime: (scope?: ReportScope) =>
+    apiRequest<AverageResolutionTimeDTO>(`/reports/tickets/average-resolution-time${scope ? `?scope=${encodeURIComponent(scope)}` : ''}`),
+  getWorkloadByAgent: (period: string, scope?: ReportScope) =>
+    apiRequest<WorkloadByAgentDTO[]>(`/reports/tickets/by-agent?period=${encodeURIComponent(period)}${scopeQuery(scope)}`),
+  getSlaCompliance: (period: string, scope?: ReportScope) =>
+    apiRequest<SLAComplianceReportDTO>(`/reports/sla/compliance?period=${encodeURIComponent(period)}${scopeQuery(scope)}`),
+  getAssetSummary: (period: string, scope?: ReportScope) =>
+    apiRequest<AssetReportDTO>(`/reports/assets/summary?period=${encodeURIComponent(period)}${scopeQuery(scope)}`),
+  getKnowledgeSummary: (period: string, scope?: ReportScope) =>
+    apiRequest<KnowledgeReportDTO>(`/reports/knowledge/summary?period=${encodeURIComponent(period)}${scopeQuery(scope)}`),
 }
