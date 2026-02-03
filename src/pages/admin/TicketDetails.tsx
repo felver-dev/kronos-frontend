@@ -1882,7 +1882,8 @@ const TicketDetails = () => {
                   {ticket.assigned_to ? 'Réassigner' : 'Assigner'}
                 </button>
               )}
-              {hasPermission('tickets.update') && (
+              {/* Bouton "Changer le statut" désactivé : trop de liberté, le workflow impose Soumettre pour validation → Valider / Invalider → Fermer. */}
+              {/* {hasPermission('tickets.update') && (
                 <button
                   onClick={handleOpenStatusModal}
                   className="w-full btn btn-secondary"
@@ -1891,7 +1892,7 @@ const TicketDetails = () => {
                 >
                   {isChangingStatus ? 'Changement...' : 'Changer le statut'}
                 </button>
-              )}
+              )} */}
               {/* Soumettre pour validation : assignés ou créateur du ticket (IT, filiale fournisseur). Passe le ticket en « En attente ». */}
               {hasPermission('tickets.update') && userDepartment?.is_it_department && userDepartment?.filiale?.is_software_provider && canSubmitForValidation && ticket.status !== 'en_attente' && ticket.status !== 'resolu' && ticket.status !== 'cloture' && (
                 <button
