@@ -19,7 +19,7 @@ const Login = () => {
     setLoading(true)
 
     try {
-      await login(email, password)
+      await login(email, password, rememberMe)
       // Redirection vers le portail unifié
       navigate('/app/dashboard')
     } catch (err) {

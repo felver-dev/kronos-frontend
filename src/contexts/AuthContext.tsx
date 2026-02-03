@@ -20,9 +20,11 @@ interface User {
 // Plus de mapping de rôles - on utilise directement le rôle du backend
 // Les permissions déterminent l'accès, pas le nom du rôle
 
+const REMEMBER_ME_KEY = 'rememberMe'
+
 interface AuthContextType {
   user: User | null
-  login: (email: string, password: string) => Promise<User>
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<User>
   logout: () => void
   isAuthenticated: boolean
   loading: boolean
@@ -70,9 +72,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         filiale_name: userData.filiale?.name ?? userData.filiale_name,
       }
       
-      // Toujours mettre à jour user et sessionStorage (nom, email, etc. après édition de profil)
+      // Mettre à jour user et le stockage utilisé (session ou localStorage selon "Se souvenir de moi")
       setUser(updatedUser)
-      sessionStorage.setItem('user', JSON.stringify(updatedUser))
+      const storage = localStorage.getItem(REMEMBER_ME_KEY) ? localStorage : sessionStorage
+      storage.setItem('user', JSON.stringify(updatedUser))
       // Incrémenter la version des permissions seulement si elles ont changé (re-render des gardes)
       const permissionsChanged = JSON.stringify(user.permissions) !== JSON.stringify(newPermissions)
       if (permissionsChanged) {
@@ -84,23 +87,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   useEffect(() => {
-    // Vérifier si l'utilisateur est déjà connecté
+    // Vérifier si l'utilisateur est déjà connecté (localStorage si "Se souvenir de moi", sinon sessionStorage)
     const initAuth = async () => {
-      let storedUser = sessionStorage.getItem('user')
-      let token = sessionStorage.getItem('token')
+      const useRememberMe = localStorage.getItem(REMEMBER_ME_KEY) === '1'
+      const storage = useRememberMe ? localStorage : sessionStorage
+      let storedUser = storage.getItem('user')
+      let token = storage.getItem('token')
 
-      // Migration: si l'ancien localStorage existe, le déplacer dans la session de l'onglet
-      if (!storedUser && !token) {
-        const legacyUser = localStorage.getItem('user')
-        const legacyToken = localStorage.getItem('token')
-        if (legacyUser && legacyToken) {
-          sessionStorage.setItem('user', legacyUser)
-          sessionStorage.setItem('token', legacyToken)
-          localStorage.removeItem('user')
-          localStorage.removeItem('token')
-          storedUser = legacyUser
-          token = legacyToken
-        }
+      // Migration: ancien code ne mettait pas rememberMe ; si token en localStorage sans clé, l'utiliser
+      if (!storedUser && !token && localStorage.getItem('token')) {
+        storedUser = localStorage.getItem('user')
+        token = localStorage.getItem('token')
+        if (storedUser && token) localStorage.setItem(REMEMBER_ME_KEY, '1')
       }
       
       if (token) {
@@ -123,7 +121,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             filiale_name: (userData as any)?.filiale?.name ?? (userData as any)?.filiale_name,
           }
           setUser(updatedUser)
-          sessionStorage.setItem('user', JSON.stringify(updatedUser))
+          const storage = localStorage.getItem(REMEMBER_ME_KEY) ? localStorage : sessionStorage
+          storage.setItem('user', JSON.stringify(updatedUser))
         } catch (error) {
           // Si /auth/me échoue (401, réseau), utiliser le sessionStorage en secours
           if (storedUser) {
@@ -150,7 +149,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth()
   }, [])
 
-  const login = async (email: string, password: string): Promise<User> => {
+  const login = async (email: string, password: string, rememberMe = false): Promise<User> => {
     try {
       const response = await authService.login({ email, password })
       
@@ -164,10 +163,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       
       setUser(mappedUser)
-      sessionStorage.setItem('user', JSON.stringify(mappedUser))
-      sessionStorage.setItem('token', response.token) // Store token (session)
-      localStorage.removeItem('user')
-      localStorage.removeItem('token')
+      const storage = rememberMe ? localStorage : sessionStorage
+      const other = rememberMe ? sessionStorage : localStorage
+      storage.setItem('user', JSON.stringify(mappedUser))
+      storage.setItem('token', response.token)
+      if (rememberMe) storage.setItem(REMEMBER_ME_KEY, '1')
+      else localStorage.removeItem(REMEMBER_ME_KEY)
+      other.removeItem('user')
+      other.removeItem('token')
       
       // Réinitialiser le flag pour permettre le rafraîchissement après login
       hasRefreshedRef.current = false
@@ -207,6 +210,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     authService.logout()
+    localStorage.removeItem(REMEMBER_ME_KEY)
     setUser(null)
     setPermissionsVersion(0)
     // Navigation côté client vers /login (évite le rechargement complet de la page)

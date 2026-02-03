@@ -55,12 +55,7 @@ export const authService = {
       body: JSON.stringify(credentials),
     })
     
-    // Sauvegarder le token (session par onglet)
-    if (response && response.token) {
-      sessionStorage.setItem('token', response.token)
-      localStorage.removeItem('token')
-    }
-    
+    // Le token est stocké par AuthContext (selon "Se souvenir de moi")
     return response
   },
 

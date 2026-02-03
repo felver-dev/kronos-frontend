@@ -7,9 +7,12 @@ const DEBUG_API = import.meta.env.VITE_DEBUG_API === 'true'
 // Nom du groupe / organisation (configurable via VITE_APP_GROUP_NAME, ex: Sanlam Allianz)
 export const APP_GROUP_NAME = import.meta.env.VITE_APP_GROUP_NAME || 'le groupe'
 
-// Headers par défaut
+const REMEMBER_ME_KEY = 'rememberMe'
+
+// Headers par défaut (token depuis sessionStorage ou localStorage si "Se souvenir de moi")
 export const getDefaultHeaders = () => {
-  const token = sessionStorage.getItem('token')
+  const storage = localStorage.getItem(REMEMBER_ME_KEY) === '1' ? localStorage : sessionStorage
+  const token = storage.getItem('token')
   return {
     'Content-Type': 'application/json',
     ...(token && { Authorization: `Bearer ${token}` }),
