@@ -1012,9 +1012,9 @@ const Timesheet = () => {
         </div>
       </div>
 
-      {/* Onglets */}
-      <div className="border-b border-gray-200 dark:border-gray-700">
-        <nav className="-mb-px flex space-x-8 overflow-x-auto">
+      {/* Onglets : scroll horizontal sur mobile */}
+      <div className="border-b border-gray-200 dark:border-gray-700 -mx-2 px-2 sm:mx-0 sm:px-0">
+        <nav className="-mb-px flex space-x-4 sm:space-x-8 overflow-x-auto overflow-y-hidden pb-px min-w-0">
           {!isEmployeeView && (hasPermission?.('timesheet.view_all') || hasPermission?.('timesheet.view_team')) && (
             <button
               onClick={() => setActiveTab('overview')}
@@ -2727,7 +2727,7 @@ const Timesheet = () => {
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Temps passé *
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="number"
                 name="time_spent"
@@ -2735,12 +2735,12 @@ const Timesheet = () => {
                 min="0.1"
                 step="0.1"
                 placeholder="Ex: 8"
-                className="input flex-1"
+                className="input flex-1 w-full min-w-0"
               />
               <select
                 value={entryTimeUnit}
                 onChange={(e) => setEntryTimeUnit(e.target.value as 'minutes' | 'hours' | 'days')}
-                className="input w-32"
+                className="input w-full sm:w-32"
               >
                 <option value="minutes">Minutes</option>
                 <option value="hours">Heures</option>
@@ -3003,7 +3003,7 @@ const Timesheet = () => {
               Tickets *
             </label>
             {dailyTasks.map((task, index) => (
-              <div key={index} className="flex gap-2 mb-2">
+              <div key={index} className="flex flex-col sm:flex-row gap-2 mb-2">
                 <select
                   value={task.ticket_id}
                   onChange={(e) => {
@@ -3012,7 +3012,7 @@ const Timesheet = () => {
                     setDailyTasks(newTasks)
                   }}
                   required
-                  className="input flex-1"
+                  className="input flex-1 w-full min-w-0"
                 >
                   <option value="">Sélectionner un ticket</option>
                   {tickets.map(ticket => (
@@ -3021,44 +3021,47 @@ const Timesheet = () => {
                     </option>
                   ))}
                 </select>
-                <input
-                  type="number"
-                  value={task.time_spent}
-                  onChange={(e) => {
-                    const newTasks = [...dailyTasks]
-                    newTasks[index].time_spent = e.target.value
-                    setDailyTasks(newTasks)
-                  }}
-                  placeholder="Temps"
-                  required
-                  min="0.1"
-                  step="0.1"
-                  className="input w-32"
-                />
-                <select
-                  value={task.time_unit}
-                  onChange={(e) => {
-                    const newTasks = [...dailyTasks]
-                    newTasks[index].time_unit = e.target.value as 'minutes' | 'hours' | 'days'
-                    setDailyTasks(newTasks)
-                  }}
-                  className="input w-28"
-                >
-                  <option value="minutes">Minutes</option>
-                  <option value="hours">Heures</option>
-                  <option value="days">Jours</option>
-                </select>
-                {dailyTasks.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDailyTasks(dailyTasks.filter((_, i) => i !== index))
+                <div className="flex gap-2 flex-1 w-full sm:w-auto">
+                  <input
+                    type="number"
+                    value={task.time_spent}
+                    onChange={(e) => {
+                      const newTasks = [...dailyTasks]
+                      newTasks[index].time_spent = e.target.value
+                      setDailyTasks(newTasks)
                     }}
-                    className="btn btn-secondary"
+                    placeholder="Temps"
+                    required
+                    min="0.1"
+                    step="0.1"
+                    className="input flex-1 min-w-0 w-24 sm:w-32"
+                  />
+                  <select
+                    value={task.time_unit}
+                    onChange={(e) => {
+                      const newTasks = [...dailyTasks]
+                      newTasks[index].time_unit = e.target.value as 'minutes' | 'hours' | 'days'
+                      setDailyTasks(newTasks)
+                    }}
+                    className="input w-28 flex-shrink-0"
                   >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
+                    <option value="minutes">Minutes</option>
+                    <option value="hours">Heures</option>
+                    <option value="days">Jours</option>
+                  </select>
+                  {dailyTasks.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDailyTasks(dailyTasks.filter((_, i) => i !== index))
+                      }}
+                      className="btn btn-secondary flex-shrink-0 p-2"
+                      aria-label="Supprimer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
             <button
@@ -3139,73 +3142,76 @@ const Timesheet = () => {
               Tickets *
             </label>
             {weeklyTasks.map((task, index) => (
-              <div key={index} className="flex gap-2 mb-2">
-                <input
-                  type="date"
-                  value={task.date}
-                  onChange={(e) => {
-                    const newTasks = [...weeklyTasks]
-                    newTasks[index].date = e.target.value
-                    setWeeklyTasks(newTasks)
-                  }}
-                  required
-                  className="input w-40"
-                />
-                <select
-                  value={task.ticket_id}
-                  onChange={(e) => {
-                    const newTasks = [...weeklyTasks]
-                    newTasks[index].ticket_id = e.target.value
-                    setWeeklyTasks(newTasks)
-                  }}
-                  required
-                  className="input flex-1"
-                >
-                  <option value="">Sélectionner un ticket</option>
-                  {tickets.map(ticket => (
-                    <option key={ticket.id} value={ticket.id.toString()}>
-                      {ticket.code} - {ticket.title}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  value={task.time_spent}
-                  onChange={(e) => {
-                    const newTasks = [...weeklyTasks]
-                    newTasks[index].time_spent = e.target.value
-                    setWeeklyTasks(newTasks)
-                  }}
-                  placeholder="Temps"
-                  required
-                  min="0.1"
-                  step="0.1"
-                  className="input w-32"
-                />
-                <select
-                  value={task.time_unit}
-                  onChange={(e) => {
-                    const newTasks = [...weeklyTasks]
-                    newTasks[index].time_unit = e.target.value as 'minutes' | 'hours' | 'days'
-                    setWeeklyTasks(newTasks)
-                  }}
-                  className="input w-28"
-                >
-                  <option value="minutes">Minutes</option>
-                  <option value="hours">Heures</option>
-                  <option value="days">Jours</option>
-                </select>
-                {weeklyTasks.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWeeklyTasks(weeklyTasks.filter((_, i) => i !== index))
+              <div key={index} className="flex flex-col sm:flex-row gap-2 mb-2">
+                <div className="flex gap-2 flex-wrap">
+                  <input
+                    type="date"
+                    value={task.date}
+                    onChange={(e) => {
+                      const newTasks = [...weeklyTasks]
+                      newTasks[index].date = e.target.value
+                      setWeeklyTasks(newTasks)
                     }}
-                    className="btn btn-secondary"
+                    required
+                    className="input w-full sm:w-40 min-w-0"
+                  />
+                  <select
+                    value={task.ticket_id}
+                    onChange={(e) => {
+                      const newTasks = [...weeklyTasks]
+                      newTasks[index].ticket_id = e.target.value
+                      setWeeklyTasks(newTasks)
+                    }}
+                    required
+                    className="input flex-1 min-w-0 w-full sm:w-auto"
                   >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
+                    <option value="">Sélectionner un ticket</option>
+                    {tickets.map(ticket => (
+                      <option key={ticket.id} value={ticket.id.toString()}>
+                        {ticket.code} - {ticket.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex gap-2 flex-1 w-full sm:w-auto">
+                  <input
+                    type="number"
+                    value={task.time_spent}
+                    onChange={(e) => {
+                      const newTasks = [...weeklyTasks]
+                      newTasks[index].time_spent = e.target.value
+                      setWeeklyTasks(newTasks)
+                    }}
+                    placeholder="Temps"
+                    required
+                    min="0.1"
+                    step="0.1"
+                    className="input flex-1 min-w-0 w-24 sm:w-32"
+                  />
+                  <select
+                    value={task.time_unit}
+                    onChange={(e) => {
+                      const newTasks = [...weeklyTasks]
+                      newTasks[index].time_unit = e.target.value as 'minutes' | 'hours' | 'days'
+                      setWeeklyTasks(newTasks)
+                    }}
+                    className="input w-28 flex-shrink-0"
+                  >
+                    <option value="minutes">Minutes</option>
+                    <option value="hours">Heures</option>
+                    <option value="days">Jours</option>
+                  </select>
+                  {weeklyTasks.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setWeeklyTasks(weeklyTasks.filter((_, i) => i !== index))}
+                      className="btn btn-secondary flex-shrink-0 p-2"
+                      aria-label="Supprimer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
             <button

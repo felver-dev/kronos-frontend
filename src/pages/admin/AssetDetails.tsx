@@ -130,7 +130,12 @@ const AssetDetails = () => {
       setOffices(Array.isArray(data) ? data : [])
     } catch (err) {
       console.error('Erreur lors du chargement des sièges:', err)
-      toast.error('Erreur lors du chargement des sièges')
+      const msg = err instanceof Error ? err.message : ''
+      if (msg.toLowerCase().includes('permission') || msg.includes('403')) {
+        toast.error('Vous n\'avez pas la permission de lister les actifs')
+      } else {
+        toast.error('Erreur lors du chargement des actifs')
+      }
       setOffices([])
     }
   }

@@ -71,8 +71,12 @@ const Assets = () => {
       setInventory(inventoryData || null)
     } catch (err) {
       console.error('Erreur lors du chargement des actifs:', err)
-      setError(err instanceof Error ? err.message : 'Erreur lors du chargement des actifs')
-      toast.error(err instanceof Error ? err.message : 'Erreur lors du chargement des actifs')
+      const msg = err instanceof Error ? err.message : ''
+      const displayMsg = (msg.toLowerCase().includes('permission') || msg.includes('403'))
+        ? 'Vous n\'avez pas la permission de voir les actifs'
+        : 'Erreur lors du chargement des actifs'
+      setError(displayMsg)
+      toast.error(displayMsg)
       setAssets([]) // S'assurer que assets est toujours un tableau
     } finally {
       setLoading(false)
@@ -101,7 +105,12 @@ const Assets = () => {
       setOffices(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error('Erreur lors du chargement des sièges:', error)
-      toast.error('Erreur lors du chargement des sièges')
+      const msg = error instanceof Error ? error.message : ''
+      if (msg.toLowerCase().includes('permission') || msg.includes('403')) {
+        toast.error('Vous n\'avez pas la permission de lister les actifs')
+      } else {
+        toast.error('Erreur lors du chargement des actifs')
+      }
       setOffices([])
     }
   }

@@ -430,7 +430,7 @@ const Projects = () => {
               placeholder="Description du projet"
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Début prévu
@@ -439,7 +439,7 @@ const Projects = () => {
                 type="date"
                 value={createFormData.start_date || ''}
                 onChange={(e) => setCreateFormData({ ...createFormData, start_date: e.target.value })}
-                className="input"
+                className="input w-full"
               />
             </div>
             <div>
@@ -450,7 +450,7 @@ const Projects = () => {
                 type="date"
                 value={createFormData.end_date || ''}
                 onChange={(e) => setCreateFormData({ ...createFormData, end_date: e.target.value })}
-                className="input"
+                className="input w-full"
               />
             </div>
           </div>
@@ -458,7 +458,7 @@ const Projects = () => {
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Budget temps (optionnel)
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="number"
                 min={0}
@@ -472,13 +472,13 @@ const Projects = () => {
                     if (!isNaN(n) && n >= 0) setBudgetValue(n)
                   }
                 }}
-                className="input flex-1"
+                className="input flex-1 w-full min-w-0"
                 placeholder="Ex: 10"
               />
               <select
                 value={budgetUnit}
                 onChange={(e) => setBudgetUnit(e.target.value as BudgetUnit)}
-                className="input w-36"
+                className="input w-full sm:w-36"
               >
                 {BUDGET_UNITS.map((u) => (
                   <option key={u.value} value={u.value}>
