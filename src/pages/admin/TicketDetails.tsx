@@ -674,7 +674,8 @@ const TicketDetails = () => {
     try {
       const updatedTicket = await ticketService.changeStatus(ticket.id, 'en_attente')
       toast.success('Ticket soumis pour validation. Le propriétaire a été notifié.')
-      setTicket(updatedTicket)
+      // S'assurer que le statut affiché est bien "en_attente" (réponse API ou fallback)
+      setTicket({ ...updatedTicket, status: (updatedTicket?.status && updatedTicket.status !== '') ? updatedTicket.status : 'en_attente' })
       await loadTicketData()
     } catch (err) {
       console.error('Erreur lors de la soumission pour validation:', err)
@@ -1903,8 +1904,8 @@ const TicketDetails = () => {
                   {isSubmittingForValidation ? 'Envoi...' : 'Soumettre pour validation'}
                 </button>
               )}
-              {/* Valider le ticket : pour les tickets en attente de validation (demandeur valide → statut « Résolu ») */}
-              {ticket.status === 'en_attente' && (hasPermission('tickets.validate') || hasPermission('tickets.validate_own')) && (
+              {/* Valider le ticket : en attente → statut « Résolu ». Visible si permission de validation OU créateur du ticket (ex. résolveur IT qui a créé le ticket). */}
+              {ticket.status === 'en_attente' && (hasPermission('tickets.validate') || hasPermission('tickets.validate_own') || isCreatorOfTicket) && (
                 <button
                   onClick={() => setIsValidateModalOpen(true)}
                   className="w-full btn btn-success flex items-center justify-center"
@@ -1915,8 +1916,8 @@ const TicketDetails = () => {
                   {isValidating ? 'Validation...' : 'Valider le ticket'}
                 </button>
               )}
-              {/* Invalider : pour les tickets résolus (demandeur ou IT remet le ticket à « Ouvert ») */}
-              {ticket.status === 'resolu' && (hasPermission('tickets.validate') || hasPermission('tickets.validate_own')) && (
+              {/* Invalider : pour les tickets résolus. Visible si permission OU créateur du ticket. */}
+              {ticket.status === 'resolu' && (hasPermission('tickets.validate') || hasPermission('tickets.validate_own') || isCreatorOfTicket) && (
                 <button
                   onClick={handleInvalidate}
                   className="w-full btn btn-secondary flex items-center justify-center"
