@@ -987,16 +987,17 @@ const Timesheet = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Gestion du temps</h1>
-          <p className="text-gray-600 dark:text-gray-300 mt-1">Suivez et validez le temps passé par les techniciens</p>
+      {/* En-tête : sur mobile période + exporter en dessous du titre avec espacement */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 break-words">Gestion du temps</h1>
+          <p className="text-gray-600 dark:text-gray-300 mt-1 text-sm sm:text-base">Suivez et validez le temps passé par les techniciens</p>
         </div>
-        <div className="flex space-x-2">
+        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto flex-shrink-0">
           <select
             value={selectedPeriod}
             onChange={(e) => setSelectedPeriod(e.target.value)}
-            className="input"
+            className="input w-full md:w-auto min-w-0"
           >
             <option value="week">Cette semaine</option>
             <option value="month">Ce mois</option>
@@ -1004,21 +1005,21 @@ const Timesheet = () => {
           </select>
           <button 
             onClick={handleExport}
-            className="btn btn-secondary flex items-center"
+            className="btn btn-secondary flex items-center justify-center w-full md:w-auto whitespace-nowrap"
           >
-            <Download className="w-5 h-5 mr-2" />
+            <Download className="w-5 h-5 mr-2 flex-shrink-0" />
             Exporter
           </button>
         </div>
       </div>
 
-      {/* Onglets : scroll horizontal sur mobile */}
+      {/* Onglets : scroll horizontal sur mobile, espacement et snap */}
       <div className="border-b border-gray-200 dark:border-gray-700 -mx-2 px-2 sm:mx-0 sm:px-0">
-        <nav className="-mb-px flex space-x-4 sm:space-x-8 overflow-x-auto overflow-y-hidden pb-px min-w-0">
+        <nav className="-mb-px flex gap-2 sm:gap-4 md:gap-6 overflow-x-auto overflow-y-hidden pb-px min-w-0 scroll-smooth snap-x snap-mandatory">
           {!isEmployeeView && (hasPermission?.('timesheet.view_all') || hasPermission?.('timesheet.view_team')) && (
             <button
               onClick={() => setActiveTab('overview')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+              className={`flex-shrink-0 snap-start py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
                 activeTab === 'overview'
                   ? 'border-primary-500 text-primary-600 dark:text-primary-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
@@ -1030,7 +1031,7 @@ const Timesheet = () => {
           )}
           <button
             onClick={() => setActiveTab('entries')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+            className={`flex-shrink-0 snap-start py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
               activeTab === 'entries'
                 ? 'border-primary-500 text-primary-600 dark:text-primary-400'
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
@@ -1041,30 +1042,30 @@ const Timesheet = () => {
           </button>
           <button
             onClick={() => setActiveTab('daily')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+            className={`flex-shrink-0 snap-start py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
               activeTab === 'daily'
                 ? 'border-primary-500 text-primary-600 dark:text-primary-400'
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
             }`}
           >
             <Calendar className="w-5 h-5 inline mr-2" />
-            Déclarations journalières
+            <span className="hidden sm:inline">Déclarations </span>Journalières
           </button>
           <button
             onClick={() => setActiveTab('weekly')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+            className={`flex-shrink-0 snap-start py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
               activeTab === 'weekly'
                 ? 'border-primary-500 text-primary-600 dark:text-primary-400'
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
             }`}
           >
             <CalendarDays className="w-5 h-5 inline mr-2" />
-            Déclarations hebdomadaires
+            <span className="hidden sm:inline">Déclarations </span>Hebdo
           </button>
           {!isEmployeeView && hasPermission?.('timesheet.view_budget') && (
             <button
               onClick={() => setActiveTab('budget')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+              className={`flex-shrink-0 snap-start py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
                 activeTab === 'budget'
                   ? 'border-primary-500 text-primary-600 dark:text-primary-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
@@ -1077,7 +1078,7 @@ const Timesheet = () => {
           {!isEmployeeView && hasPermission?.('timesheet.validate') && (
             <button
               onClick={() => setActiveTab('validation')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+              className={`flex-shrink-0 snap-start py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
                 activeTab === 'validation'
                   ? 'border-primary-500 text-primary-600 dark:text-primary-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
@@ -1330,26 +1331,27 @@ const Timesheet = () => {
       {activeTab === 'entries' && (
         <div className="space-y-6">
           <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            {/* En-tête : sur mobile titre au-dessus, boutons en dessous avec espacement */}
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 min-w-0 break-words">
                 {isEmployeeView ? 'Mes entrées de temps' : 'Toutes les entrées de temps'}
               </h2>
-              <div className="flex space-x-2">
+              <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto flex-shrink-0">
                 <button
                   onClick={() => setIsCreateEntryModalOpen(true)}
-                  className="btn btn-primary flex items-center"
+                  className="btn btn-primary flex items-center justify-center w-full sm:w-auto"
                 >
-                  <Plus className="w-5 h-5 mr-2" />
+                  <Plus className="w-5 h-5 mr-2 flex-shrink-0" />
                   Nouvelle entrée
                 </button>
                 {!isEmployeeView && (
                   <button
                     onClick={() => setShowFilters(!showFilters)}
-                    className={`btn btn-secondary flex items-center ${showFilters ? 'bg-primary-100 dark:bg-primary-900/30' : ''}`}
+                    className={`btn btn-secondary flex items-center justify-center w-full sm:w-auto ${showFilters ? 'bg-primary-100 dark:bg-primary-900/30' : ''}`}
                   >
-                    <Filter className="w-5 h-5 mr-2" />
+                    <Filter className="w-5 h-5 mr-2 flex-shrink-0" />
                     Filtres
-                    {showFilters && <X className="w-4 h-4 ml-2" />}
+                    {showFilters && <X className="w-4 h-4 ml-2 flex-shrink-0" />}
                   </button>
                 )}
               </div>
@@ -1748,16 +1750,16 @@ const Timesheet = () => {
             </>
           ) : (
             <div className="card">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 min-w-0 break-words">
                   Déclarations journalières
                 </h2>
                 {hasPermission?.('timesheet.create_daily') && (
                   <button
                     onClick={() => setIsCreateDailyModalOpen(true)}
-                    className="btn btn-primary flex items-center"
+                    className="btn btn-primary flex items-center justify-center w-full md:w-auto flex-shrink-0"
                   >
-                    <Plus className="w-5 h-5 mr-2" />
+                    <Plus className="w-5 h-5 mr-2 flex-shrink-0" />
                     Nouvelle déclaration
                   </button>
                 )}
@@ -1993,16 +1995,16 @@ const Timesheet = () => {
             </div>
           ) : (
             <div className="card">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 min-w-0 break-words">
                   Déclarations hebdomadaires
                 </h2>
                 {hasPermission?.('timesheet.create_weekly') && (
                   <button
                     onClick={() => setIsCreateWeeklyModalOpen(true)}
-                    className="btn btn-primary flex items-center"
+                    className="btn btn-primary flex items-center justify-center w-full md:w-auto flex-shrink-0"
                   >
-                    <Plus className="w-5 h-5 mr-2" />
+                    <Plus className="w-5 h-5 mr-2 flex-shrink-0" />
                     Nouvelle déclaration
                   </button>
                 )}
