@@ -326,8 +326,8 @@ const Assets = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
+      <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between md:gap-4">
+        <div className="order-2 md:order-1 min-w-0 flex-1 w-full">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 sm:text-3xl">Actifs IT</h1>
           <div className="flex items-center gap-2 mt-1">
             <p className="text-gray-600 dark:text-gray-400 text-sm sm:text-base">Gérez tous les actifs informatiques</p>
@@ -340,13 +340,15 @@ const Assets = () => {
             </button>
           </div>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="inline-flex items-center justify-center w-full sm:w-auto flex-shrink-0 px-3 py-2 sm:px-4 sm:py-2 text-sm sm:text-base font-medium rounded-lg bg-primary-600 hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 text-white shadow-sm transition-colors"
-        >
-          <Plus className="w-5 h-5 mr-2 flex-shrink-0" />
-          <span className="truncate">Nouvel actif</span>
-        </button>
+        <div className="order-1 md:order-2 flex-shrink-0 w-full md:w-auto">
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="inline-flex items-center justify-center w-full sm:w-auto px-3 py-2 sm:px-4 sm:py-2 text-sm sm:text-base font-medium rounded-lg bg-primary-600 hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 text-white shadow-sm transition-colors"
+          >
+            <Plus className="w-5 h-5 mr-2 flex-shrink-0" />
+            <span className="truncate">Nouvel actif</span>
+          </button>
+        </div>
       </div>
 
       {/* Note d'explication en dessous du header pour ne pas déranger le bouton */}

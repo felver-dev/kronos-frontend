@@ -255,19 +255,21 @@ const Projects = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Projets</h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
+      <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between md:gap-4">
+        <div className="order-2 md:order-1 w-full min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 break-words">Projets</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1 text-sm sm:text-base">
             Gérez les projets, les étapes, les tâches et les membres
           </p>
         </div>
-        <PermissionGuard permissions={['projects.create']}>
-          <button onClick={() => setIsCreateModalOpen(true)} className="btn btn-primary flex items-center">
-            <Plus className="w-5 h-5 mr-2" />
-            Nouveau projet
-          </button>
-        </PermissionGuard>
+        <div className="order-1 md:order-2 flex-shrink-0 w-full md:w-auto">
+          <PermissionGuard permissions={['projects.create']}>
+            <button onClick={() => setIsCreateModalOpen(true)} className="btn btn-primary flex items-center w-full sm:w-auto justify-center">
+              <Plus className="w-5 h-5 mr-2" />
+              Nouveau projet
+            </button>
+          </PermissionGuard>
+        </div>
       </div>
 
       <div className="card">

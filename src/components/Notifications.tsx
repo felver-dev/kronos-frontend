@@ -178,8 +178,15 @@ export const Notifications = () => {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-96 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 max-h-[600px] flex flex-col">
-          <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+        <>
+          {/* Overlay mobile : clic pour fermer */}
+          <div
+            className="fixed inset-0 z-40 sm:hidden bg-black/20"
+            onClick={() => setIsOpen(false)}
+            aria-hidden
+          />
+          <div className="fixed left-4 right-4 top-16 sm:top-auto sm:left-auto sm:right-0 sm:mt-2 sm:absolute w-auto sm:w-96 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 max-h-[calc(100vh-5.5rem)] sm:max-h-[min(80vh,600px)] flex flex-col min-h-0">
+          <div className="flex items-center justify-between p-3 sm:p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
               Notifications
             </h3>
@@ -211,7 +218,7 @@ export const Notifications = () => {
             </div>
           </div>
 
-          <div className="overflow-y-auto flex-1">
+          <div className="overflow-y-auto flex-1 min-h-0">
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600 dark:border-primary-400"></div>
@@ -278,7 +285,8 @@ export const Notifications = () => {
               </div>
             )}
           </div>
-        </div>
+          </div>
+        </>
       )}
     </div>
   )
