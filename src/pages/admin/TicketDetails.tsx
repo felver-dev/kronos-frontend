@@ -274,8 +274,8 @@ const TicketDetails = () => {
       setHistory(historyData)
       setAttachments(attachmentsData)
       
-      // Charger les solutions si le ticket est cloturé
-      if (ticketData.status === 'cloture') {
+      // Charger les solutions si le ticket est résolu ou clôturé (résolveurs/assignés peuvent documenter dès que le ticket est résolu)
+      if (ticketData.status === 'resolu' || ticketData.status === 'cloture') {
         loadSolutions()
       }
     } catch (err) {
@@ -1467,8 +1467,8 @@ const TicketDetails = () => {
             })()}
           </div>
 
-          {/* Solutions documentées - Affichée uniquement si le ticket est cloturé */}
-          {ticket.status === 'cloture' && (
+          {/* Solutions documentées - Affichée si le ticket est résolu ou clôturé (résolveurs/assignés peuvent ajouter une solution dès que le ticket est résolu) */}
+          {(ticket.status === 'resolu' || ticket.status === 'cloture') && (
             <div className="card">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center">
