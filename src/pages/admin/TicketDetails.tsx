@@ -508,6 +508,11 @@ const TicketDetails = () => {
         ? ticket.assignees.some((a) => Number(a.user?.id) === currentUserId)
         : Number(ticket.assigned_to?.id) === currentUserId)
     : false
+  // Le créateur du ticket (ex. un IT qui a créé le ticket) peut aussi soumettre pour validation
+  const isCreatorOfTicket = ticket && currentUserId != null && ticket.created_by
+    ? Number(ticket.created_by.id) === currentUserId
+    : false
+  const canSubmitForValidation = isAssignedToTicket || isCreatorOfTicket
 
   // Charger le département de l'utilisateur connecté
   const loadUserDepartment = async () => {
@@ -1886,8 +1891,8 @@ const TicketDetails = () => {
                   {isChangingStatus ? 'Changement...' : 'Changer le statut'}
                 </button>
               )}
-              {/* Soumettre pour validation : uniquement les assignés (IT, filiale fournisseur). Passe le ticket en « En attente ». */}
-              {hasPermission('tickets.update') && userDepartment?.is_it_department && userDepartment?.filiale?.is_software_provider && isAssignedToTicket && ticket.status !== 'en_attente' && ticket.status !== 'resolu' && ticket.status !== 'cloture' && (
+              {/* Soumettre pour validation : assignés ou créateur du ticket (IT, filiale fournisseur). Passe le ticket en « En attente ». */}
+              {hasPermission('tickets.update') && userDepartment?.is_it_department && userDepartment?.filiale?.is_software_provider && canSubmitForValidation && ticket.status !== 'en_attente' && ticket.status !== 'resolu' && ticket.status !== 'cloture' && (
                 <button
                   onClick={handleSubmitForValidation}
                   className="w-full btn btn-primary flex items-center justify-center"
