@@ -353,34 +353,35 @@ const ProjectDetails = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
+      {/* En-tête : sur mobile titre au-dessus, bouton Clôturer en dessous avec espacement */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-start gap-4 min-w-0 flex-1">
           <Link
             to="/app/projects"
-            className="p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 flex-shrink-0"
             title="Retour aux projets"
           >
             <ArrowLeft className="w-5 h-5" />
           </Link>
-          <div className="flex items-center gap-3">
-            <FolderKanban className="w-10 h-10 text-primary-600 dark:text-primary-400" />
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{project.name}</h1>
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <FolderKanban className="w-10 h-10 text-primary-600 dark:text-primary-400 flex-shrink-0" />
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 break-words">{project.name}</h1>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {statusLabels[project.status] || project.status}
               </p>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 w-full md:w-auto flex-shrink-0">
           {hasPermission('projects.update') && project.status !== 'completed' && project.status !== 'cancelled' && (
             <button
               type="button"
               onClick={openCloseModal}
-              className="btn flex items-center border border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800/50 dark:text-emerald-400 dark:hover:bg-emerald-900/20"
+              className="btn flex items-center justify-center w-full md:w-auto border border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800/50 dark:text-emerald-400 dark:hover:bg-emerald-900/20"
               title="Clôturer le projet"
             >
-              <CheckCircle className="w-4 h-4 mr-1.5" />
+              <CheckCircle className="w-4 h-4 mr-1.5 flex-shrink-0" />
               Clôturer le projet
             </button>
           )}
